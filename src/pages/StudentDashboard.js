@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   LogOut, TrendingUp, Award, Calendar, Loader2, 
-  LayoutGrid, Table as TableIcon, Clock, Star, Menu
+  LayoutGrid, Table as TableIcon, Clock, Star, Users 
 } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'; 
+import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore'; // doc va getDoc qo'shildi
 import { signOut } from 'firebase/auth';
 import { 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
@@ -15,10 +15,10 @@ const StudentDashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState(null);
+  const [groupName, setGroupName] = useState(''); // <-- YANGI STATE: Guruh nomi uchun
   const [grades, setGrades] = useState([]);
   const [lessons, setLessons] = useState([]);
   
-  // Tablar: 'dashboard', 'schedule', 'grades'
   const [activeTab, setActiveTab] = useState('dashboard'); 
 
   useEffect(() => {
@@ -27,6 +27,7 @@ const StudentDashboard = () => {
       if (!user) { navigate('/'); return; }
 
       try {
+        // 1. O'quvchini topish
         const qS = query(collection(db, "students"), where("email", "==", user.email));
         const snapS = await getDocs(qS);
 
@@ -35,6 +36,20 @@ const StudentDashboard = () => {
         const studentDoc = snapS.docs[0];
         const studentData = { id: studentDoc.id, ...studentDoc.data() };
         setStudent(studentData);
+
+        // --- YANGI QISM: Guruh nomini olish ---
+        if (studentData.groupId) {
+          const groupRef = doc(db, "groups", studentData.groupId);
+          const groupSnap = await getDoc(groupRef);
+          if (groupSnap.exists()) {
+            setGroupName(groupSnap.data().name);
+          } else {
+            setGroupName("Guruh o'chirilgan");
+          }
+        } else {
+          setGroupName("Guruhsiz");
+        }
+        // -------------------------------------
 
         // Baholarni yuklash
         const gradesQuery = query(collection(db, "grades"), where("studentId", "==", studentData.id), orderBy("date", "asc"));
@@ -71,20 +86,25 @@ const StudentDashboard = () => {
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
-  if (!student) return <div className="min-h-screen flex items-center justify-center">Guruh topilmadi.</div>;
+  if (!student) return <div className="min-h-screen flex items-center justify-center">Ma'lumot topilmadi.</div>;
 
   const averageScore = grades.length > 0 ? Math.round(grades.reduce((acc, curr) => acc + curr.score, 0) / grades.length) : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans pb-24"> {/* pb-24 mobil menyu uchun joy */}
+    <div className="min-h-screen bg-slate-50 font-sans pb-24">
       
       {/* Navbar (Sticky) */}
       <nav className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 py-3 flex justify-between items-center shadow-sm">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg">S</div>
+        <div className="flex items-center space-x-3">
+          <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg shadow-indigo-200 text-sm">
+            {student.name.charAt(0)}
+          </div>
           <div>
-            <span className="font-black text-slate-800 text-sm block leading-none">Portal</span>
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{student.name.split(' ')[0]}</span>
+            <span className="font-black text-slate-800 text-sm block leading-none">{student.name.split(' ')[0]}</span>
+            {/* YANGI: Guruh nomi Navbarda */}
+            <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center mt-0.5">
+              {groupName}
+            </span>
           </div>
         </div>
         
@@ -93,7 +113,7 @@ const StudentDashboard = () => {
         </button>
       </nav>
 
-      {/* MOBILE TAB SWITCHER (Tepada) */}
+      {/* MOBILE TAB SWITCHER */}
       <div className="px-4 pt-4 pb-2 sticky top-[60px] z-40 bg-slate-50">
         <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
            <button onClick={() => setActiveTab('dashboard')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>Umumiy</button>
@@ -108,12 +128,20 @@ const StudentDashboard = () => {
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             
-            {/* Welcome Card */}
+            {/* Welcome Card - YANGILANDI */}
             <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 rounded-[2rem] p-6 sm:p-10 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
                <div className="relative z-10">
-                <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] mb-4 inline-block">Overview</span>
+                <div className="flex items-center gap-2 mb-4">
+                   <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em]">Student Portal</span>
+                   {/* YANGI: Guruh Badge */}
+                   <span className="bg-amber-400/20 text-amber-300 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-400/30 flex items-center gap-1">
+                      <Users size={10} /> {groupName}
+                   </span>
+                </div>
+                
                 <h1 className="text-2xl sm:text-4xl font-black mb-2">Salom, {student.name.split(' ')[0]}!</h1>
-                <p className="text-indigo-100 mb-6 text-sm sm:text-base font-medium opacity-90">Barcha natijalaringiz shu yerda.</p>
+                <p className="text-indigo-100 mb-6 text-sm sm:text-base font-medium opacity-90">Siz hozir <b>{groupName}</b> guruhi bo'yicha ta'lim olyapsiz.</p>
+                
                 <div className="flex gap-3">
                    <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/10"><p className="text-[9px] uppercase opacity-70">Baholar</p><p className="text-xl font-black">{grades.length}</p></div>
                    <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/10"><p className="text-[9px] uppercase opacity-70">Darslar</p><p className="text-xl font-black">{lessons.length}</p></div>
@@ -165,7 +193,7 @@ const StudentDashboard = () => {
           </div>
         )}
 
-        {/* 2-KO'RINISH: JADVAL */}
+        {/* 2-KO'RINISH: JADVAL (O'zgarishsiz) */}
         {activeTab === 'schedule' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-white rounded-[2rem] border border-slate-100 shadow-lg overflow-hidden flex flex-col">
@@ -217,7 +245,7 @@ const StudentDashboard = () => {
           </div>
         )}
 
-        {/* 3-KO'RINISH: BAHOLAR */}
+        {/* 3-KO'RINISH: BAHOLAR (O'zgarishsiz) */}
         {activeTab === 'grades' && (
            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
              <div className="bg-white rounded-[2rem] border border-slate-100 shadow-lg overflow-hidden flex flex-col">
