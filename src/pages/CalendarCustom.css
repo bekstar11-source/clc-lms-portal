@@ -1,0 +1,83 @@
+/* Assignment Planner CSS */
+.react-calendar {
+  width: 100% !important;
+  border: none !important;
+  font-family: inherit !important;
+}
+
+.react-calendar__navigation {
+  margin-bottom: 3rem !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.react-calendar__navigation button {
+  min-width: 50px !important;
+  background: none !important;
+  font-size: 1.2rem !important;
+  font-weight: 900 !important;
+  color: #0f172a !important;
+  text-transform: uppercase !important;
+}
+
+.react-calendar__navigation button:hover {
+  background-color: #f1f5f9 !important;
+  border-radius: 20px !important;
+}
+
+.react-calendar__month-view__weekdays {
+  text-align: center !important;
+  text-transform: uppercase !important;
+  font-weight: 900 !important;
+  font-size: 0.75rem !important;
+  color: #94a3b8 !important;
+  padding-bottom: 1.5rem !important;
+}
+
+.react-calendar__month-view__weekdays__weekday abbr {
+  text-decoration: none !important;
+}
+
+.react-calendar__tile {
+  padding: 1.8rem 0.5rem !important;
+  background: none !important;
+  font-weight: 800 !important;
+  color: #64748b !important;
+  border-radius: 24px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.react-calendar__tile:hover {
+  background-color: #f8fafc !important;
+  color: #4f46e5 !important;
+  transform: translateY(-2px) !important;
+}
+
+.react-calendar__tile--active {
+  background: #4f46e5 !important;
+  color: white !important;
+  box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.3) !important;
+}
+
+.react-calendar__tile--now {
+  background: #eef2ff !important;
+  color: #4f46e5 !important;
+  border: 2px solid #e0e7ff !important;
+}
+
+.react-calendar__month-view__days__day--neighboringMonth {
+  color: #e2e8f0 !important;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
