@@ -5,6 +5,8 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 // SAHIFALAR
+import Settings from './pages/Settings'; // <-- YANGI: O'qituvchi sozlamalari import qilindi
+import StudentSettings from './pages/StudentSettings'; // O'quvchi sozlamalari
 import Login from './pages/Login';
 import Register from './pages/Register';
 import GroupList from './pages/GroupList';
@@ -26,26 +28,22 @@ function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        setLoading(true); // Qidiruv paytida loading bo'lib tursin
+        setLoading(true); 
 
         try {
-          console.log("Tekshirilayotgan email:", currentUser.email);
-
           // 1. O'quvchilar ro'yxatidan qidirish
           const studentsRef = collection(db, "students");
           const q = query(studentsRef, where("email", "==", currentUser.email));
           const snap = await getDocs(q);
           
           if (!snap.empty) {
-            console.log("Natija: Bu foydalanuvchi - O'QUVCHI");
             setRole('student');
           } else {
-            console.log("Natija: O'quvchilar orasida topilmadi -> O'QITUVCHI deb belgilandi");
+            // Agar o'quvchi bo'lmasa, demak u O'qituvchi
             setRole('teacher');
           }
         } catch (error) {
           console.error("Xatolik yuz berdi:", error);
-          // Xatolik bo'lsa, xavfsizlik uchun hech kimga ruxsat bermaymiz
           setRole(null); 
         }
       } else {
@@ -63,26 +61,36 @@ function App() {
     <Router>
       <div className="flex min-h-screen bg-slate-50">
         
-        {/* Sidebar faqat O'QITUVCHI uchun */}
+        {/* Sidebar faqat O'QITUVCHI uchun ko'rinadi */}
         {user && role === 'teacher' && <Sidebar />} 
 
         <main className={`flex-1 w-full ${user ? 'pb-24 md:pb-0' : ''}`}>
           <Routes>
+            {/* 1. LOGIN & REGISTER */}
             <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
             <Route path="/register" element={user ? <Navigate to="/" /> : <Register />} />
             
+            {/* 2. ASOSIY DASHBOARD (Rolga qarab farqlanadi) */}
             <Route path="/" element={
               !user ? <Navigate to="/login" /> : 
               role === 'student' ? <StudentDashboard /> : 
               role === 'teacher' ? <GroupList /> :
-              <div className="p-10 text-center">Rol aniqlanmadi. Iltimos qayta kiring.</div>
+              <div className="p-10 text-center">Rol aniqlanmadi. Qayta kiring.</div>
             } />
 
-            {/* O'QITUVCHI YO'LLARI */}
+            {/* 3. SOZLAMALAR (ENG MUHIM O'ZGARISH SHU YERDA) */}
+            <Route path="/settings" element={
+              !user ? <Navigate to="/login" /> :
+              role === 'student' ? <StudentSettings /> : // O'quvchi uchun avatar
+              <Settings /> // O'qituvchi uchun profil sozlamalari
+            } />
+
+            {/* 4. O'QITUVCHI YO'LLARI */}
             <Route path="/group/:groupId" element={role === 'teacher' ? <GroupDetails /> : <Navigate to="/" />} />
             <Route path="/grading" element={role === 'teacher' ? <Grading /> : <Navigate to="/" />} />
             <Route path="/assignments" element={role === 'teacher' ? <Assignments /> : <Navigate to="/" />} />
             
+            {/* 404 - Not Found */}
             <Route path="*" element={<Navigate to={user ? "/" : "/login"} />} />
           </Routes>
         </main>
@@ -95,4 +103,4 @@ function App() {
   );
 }
 
-export default App;
+export default App; 

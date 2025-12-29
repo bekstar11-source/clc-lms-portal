@@ -1,25 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  LogOut, TrendingUp, Award, Calendar, Loader2, 
-  LayoutGrid, Table as TableIcon, Clock, Star, Users 
+  LogOut, Award, Loader2, Settings,
+  Trophy, AlertCircle, ArrowRight, BookOpen,
+  ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw
 } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore'; // doc va getDoc qo'shildi
+import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { 
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
+  XAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState(null);
-  const [groupName, setGroupName] = useState(''); // <-- YANGI STATE: Guruh nomi uchun
+  const [groupName, setGroupName] = useState('');
   const [grades, setGrades] = useState([]);
   const [lessons, setLessons] = useState([]);
-  
+  const [topStudents, setTopStudents] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard'); 
+  const [expandedMonths, setExpandedMonths] = useState({});
+
+  // --- BILDIRISHNOMA STATE ---
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const notifRef = useRef(null); 
 
   useEffect(() => {
     const fetchStudentData = async () => {
@@ -30,40 +38,77 @@ const StudentDashboard = () => {
         // 1. O'quvchini topish
         const qS = query(collection(db, "students"), where("email", "==", user.email));
         const snapS = await getDocs(qS);
-
-        if (snapS.empty) { setLoading(false); return; }
-
+        
+        if (snapS.empty) { 
+          console.error("O'quvchi topilmadi");
+          setLoading(false); 
+          return; 
+        }
+        
         const studentDoc = snapS.docs[0];
         const studentData = { id: studentDoc.id, ...studentDoc.data() };
         setStudent(studentData);
 
-        // --- YANGI QISM: Guruh nomini olish ---
+        // Agar o'quvchining guruhi bo'lsa
         if (studentData.groupId) {
-          const groupRef = doc(db, "groups", studentData.groupId);
-          const groupSnap = await getDoc(groupRef);
-          if (groupSnap.exists()) {
-            setGroupName(groupSnap.data().name);
-          } else {
-            setGroupName("Guruh o'chirilgan");
-          }
-        } else {
-          setGroupName("Guruhsiz");
+          const groupSnap = await getDoc(doc(db, "groups", studentData.groupId));
+          if (groupSnap.exists()) setGroupName(groupSnap.data().name);
+
+          // 2. Leaderboard Logic
+          const qAllStudents = query(collection(db, "students"), where("groupId", "==", studentData.groupId));
+          const snapAllStudents = await getDocs(qAllStudents);
+          
+          const allStuds = snapAllStudents.docs.map(d => ({ 
+            id: d.id, 
+            name: d.data().name || "Unknown", 
+            avatarSeed: d.data().avatarSeed || d.data().name || "default"
+          }));
+
+          const qAllGrades = query(collection(db, "grades"), where("groupId", "==", studentData.groupId));
+          const snapAllGrades = await getDocs(qAllGrades);
+          const allGrades = snapAllGrades.docs.map(d => d.data());
+
+          const leaderData = allStuds.map(s => {
+            const sGrades = allGrades.filter(g => g.studentId === s.id);
+            const avg = sGrades.length > 0 ? sGrades.reduce((a, b) => a + b.score, 0) / sGrades.length : 0;
+            return { name: s.name, avg: Math.round(avg), avatarSeed: s.avatarSeed };
+          }).sort((a, b) => b.avg - a.avg).slice(0, 3);
+          
+          setTopStudents(leaderData);
+
+          // 3. Lessons
+          const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "desc"));
+          const lessonsSnapshot = await getDocs(lessonsQuery);
+          
+          const fetchedLessons = lessonsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return { 
+              id: doc.id, 
+              ...data,
+              rawDate: data.createdAt ? data.createdAt.toDate() : (data.date ? new Date(data.date) : new Date())
+            };
+          });
+          setLessons(fetchedLessons);
         }
-        // -------------------------------------
 
-        // Baholarni yuklash
-        const gradesQuery = query(collection(db, "grades"), where("studentId", "==", studentData.id), orderBy("date", "asc"));
+        // 4. Grades
+        const gradesQuery = query(collection(db, "grades"), where("studentId", "==", studentData.id), orderBy("date", "desc"));
         const gradesSnapshot = await getDocs(gradesQuery);
-        const gradesData = gradesSnapshot.docs.map(doc => ({
-          ...doc.data(),
-          dateStr: doc.data().date ? doc.data().date.toDate().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : ''
-        }));
-        setGrades(gradesData);
+        const fetchedGrades = gradesSnapshot.docs.map(doc => {
+           const data = doc.data();
+           return {
+             ...data,
+             rawDate: data.date ? data.date.toDate() : new Date(),
+             dateStr: data.date ? data.date.toDate().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : ''
+           };
+        });
+        
+        setGrades(fetchedGrades); 
 
-        // Darslarni yuklash
-        const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "desc"));
-        const lessonsSnapshot = await getDocs(lessonsQuery);
-        setLessons(lessonsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        // Bildirishnomalarni generatsiya qilish
+        if (studentData.groupId) {
+             generateNotifications(fetchedGrades, []); 
+        }
 
       } catch (error) { console.error("Xatolik:", error); } 
       finally { setLoading(false); }
@@ -71,212 +116,376 @@ const StudentDashboard = () => {
     fetchStudentData();
   }, [navigate]);
 
+  useEffect(() => {
+    if (grades.length > 0 || lessons.length > 0) {
+      generateNotifications(grades, lessons);
+    }
+  }, [grades, lessons]);
+
+  const generateNotifications = (allGrades, allLessons) => {
+    const lastCheck = localStorage.getItem('lastNotificationCheck');
+    const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0); 
+    
+    const newNotifs = [];
+
+    // Yangi baholar
+    allGrades.forEach(g => {
+      if (g.rawDate && g.rawDate > lastCheckDate) {
+        newNotifs.push({
+          id: Math.random(),
+          type: 'grade',
+          title: "Yangi Baho!",
+          text: `"${g.comment}" mavzusidan ${g.score}% oldingiz.`,
+          date: g.rawDate,
+          score: g.score
+        });
+      }
+    });
+
+    // Yangi darslar
+    if (allLessons) {
+        allLessons.forEach(l => {
+            if (l.rawDate && l.rawDate > lastCheckDate) {
+                newNotifs.push({
+                    id: Math.random(),
+                    type: 'lesson',
+                    title: "Yangi Vazifa",
+                    text: `"${l.topic}" mavzusi qo'shildi.`,
+                    date: l.rawDate
+                });
+            }
+        });
+    }
+
+    newNotifs.sort((a, b) => b.date - a.date);
+    setNotifications(newNotifs);
+    setUnreadCount(newNotifs.length);
+  };
+
+  const toggleNotifications = () => {
+    if (isNotifOpen) {
+      localStorage.setItem('lastNotificationCheck', new Date().toISOString());
+      setUnreadCount(0);
+    }
+    setIsNotifOpen(!isNotifOpen);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notifRef.current && !notifRef.current.contains(event.target)) {
+        if (isNotifOpen) {
+           localStorage.setItem('lastNotificationCheck', new Date().toISOString());
+           setUnreadCount(0);
+           setIsNotifOpen(false);
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isNotifOpen]);
+
   const handleLogout = async () => {
-    if(window.confirm("Chiqmoqchimisiz?")) {
-      await signOut(auth);
-      navigate('/');
+    if(window.confirm("Chiqmoqchimisiz?")) { await signOut(auth); navigate('/'); }
+  };
+
+  const getAvatarUrl = (seed) => {
+    const safeSeed = seed || "default";
+    if (safeSeed.startsWith('bot_')) {
+       const cleanSeed = safeSeed.replace('bot_', '');
+       return `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
+    } else {
+       const encodedSeed = encodeURIComponent(safeSeed);
+       return `https://api.dicebear.com/7.x/notionists/svg?seed=${encodedSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
     }
   };
 
-  const getLessonStatus = (dateStr) => {
-    const today = new Date().toISOString().split('T')[0];
-    if (dateStr === today) return { label: 'Bugun', color: 'bg-emerald-100 text-emerald-700' };
-    if (dateStr > today) return { label: 'Rejada', color: 'bg-indigo-50 text-indigo-600' };
-    return { label: 'O\'tdi', color: 'bg-slate-100 text-slate-500' };
+  const today = new Date().toISOString().split('T')[0];
+  const lowGrades = grades.filter(g => g.score <= 20);
+  const missingAssignments = lessons.filter(lesson => {
+    if (lesson.date >= today) return false;
+    const hasGrade = grades.some(g => g.lessonId === lesson.id);
+    return !hasGrade;
+  });
+
+  const totalDebts = lowGrades.length + missingAssignments.length;
+  const averageScore = grades.length > 0 ? Math.round(grades.reduce((acc, curr) => acc + curr.score, 0) / grades.length) : 0;
+
+  const groupLessonsByMonth = () => {
+    const groups = {};
+    lessons.forEach(lesson => {
+      const date = new Date(lesson.date);
+      const monthKey = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+      if (!groups[monthKey]) groups[monthKey] = [];
+      groups[monthKey].push(lesson);
+    });
+    return groups;
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
-  if (!student) return <div className="min-h-screen flex items-center justify-center">Ma'lumot topilmadi.</div>;
+  const groupedLessons = groupLessonsByMonth();
+  const toggleMonth = (month) => setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
+  
+  const hasProblemInMonth = (monthLessons) => monthLessons.some(lesson => {
+    const lessonGrade = grades.find(g => g.lessonId === lesson.id);
+    return (lesson.date < today && !lessonGrade) || (lessonGrade && lessonGrade.score <= 20);
+  });
 
-  const averageScore = grades.length > 0 ? Math.round(grades.reduce((acc, curr) => acc + curr.score, 0) / grades.length) : 0;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans pb-24">
       
-      {/* Navbar (Sticky) */}
+      {/* Navbar */}
       <nav className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 py-3 flex justify-between items-center shadow-sm">
         <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg shadow-indigo-200 text-sm">
-            {student.name.charAt(0)}
+          <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 shadow-sm">
+             <img 
+               src={getAvatarUrl(student?.avatarSeed || student?.name || 'User')} 
+               alt="avatar" 
+               className="w-full h-full object-cover"
+             />
           </div>
+          
           <div>
-            <span className="font-black text-slate-800 text-sm block leading-none">{student.name.split(' ')[0]}</span>
-            {/* YANGI: Guruh nomi Navbarda */}
-            <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center mt-0.5">
-              {groupName}
+            <span className="font-black text-slate-800 text-sm block leading-none">
+                {student?.name ? student.name.split(' ')[0] : 'Student'}
             </span>
+            <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mt-0.5">{groupName || 'No Group'}</span>
           </div>
         </div>
         
-        <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 rounded-xl transition-all">
-          <LogOut size={18} />
-        </button>
+        <div className="flex gap-2 items-center" ref={notifRef}>
+          {/* NOTIFICATION BELL */}
+          <div className="relative">
+            <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-slate-50'}`}>
+              <Bell size={20} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 animate-in fade-in slide-in-from-top-2 z-[60]">
+                 <div className="flex justify-between items-center px-3 py-2 border-b border-slate-50">
+                    <span className="text-xs font-black text-slate-800 uppercase tracking-widest">Bildirishnoma</span>
+                    <button onClick={() => {setNotifications([]); setUnreadCount(0); localStorage.setItem('lastNotificationCheck', new Date().toISOString());}} className="text-[9px] font-bold text-slate-400 hover:text-indigo-600 uppercase">Tozalash</button>
+                 </div>
+                 <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-slate-400 text-xs italic flex flex-col items-center">
+                        <Bell size={24} className="mb-2 opacity-20"/>
+                        Yangiliklar yo'q
+                      </div>
+                    ) : (
+                      <div className="space-y-1 mt-1">
+                        {notifications.map(n => (
+                          <div key={n.id} className={`p-3 rounded-xl flex items-start gap-3 ${n.type === 'grade' && n.score <= 20 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                             <div className={`mt-1 w-2 h-2 rounded-full ${n.type === 'grade' ? (n.score <= 20 ? 'bg-red-500' : 'bg-emerald-500') : 'bg-indigo-500'}`}></div>
+                             <div>
+                               <h4 className={`text-xs font-black uppercase ${n.type === 'grade' && n.score <= 20 ? 'text-red-600' : 'text-slate-700'}`}>{n.title}</h4>
+                               <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">{n.text}</p>
+                               <span className="text-[8px] text-slate-300 font-bold uppercase mt-1 block">{new Date(n.date).toLocaleDateString()}</span>
+                             </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                 </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => navigate('/settings')} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl"><Settings size={20} /></button>
+          <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-xl"><LogOut size={20} /></button>
+        </div>
       </nav>
 
-      {/* MOBILE TAB SWITCHER */}
       <div className="px-4 pt-4 pb-2 sticky top-[60px] z-40 bg-slate-50">
         <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-           <button onClick={() => setActiveTab('dashboard')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>Umumiy</button>
-           <button onClick={() => setActiveTab('schedule')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'schedule' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>Jadval</button>
-           <button onClick={() => setActiveTab('grades')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'grades' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>Baholar</button>
+           {['dashboard', 'schedule', 'grades'].map(t => (
+             <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === t ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>
+               {t === 'dashboard' ? 'Asosiy' : t === 'schedule' ? 'Jadval' : 'Baholar'}
+             </button>
+           ))}
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-4">
+      <div className="max-w-7xl mx-auto p-4 space-y-6">
         
-        {/* 1-KO'RINISH: DASHBOARD */}
+        {/* 1. DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             
-            {/* Welcome Card - YANGILANDI */}
-            <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 rounded-[2rem] p-6 sm:p-10 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
+            {/* ALERT */}
+            {totalDebts > 0 && (
+              <div className="bg-red-50 border-2 border-red-100 p-4 rounded-3xl flex items-center gap-4 shadow-xl shadow-red-100/50 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-red-200/20 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                <div className="w-12 h-12 bg-red-500 text-white rounded-2xl flex items-center justify-center animate-pulse z-10 shadow-lg shadow-red-300">
+                  <AlertCircle size={24} />
+                </div>
+                <div className="flex-1 z-10">
+                  <h4 className="font-black text-red-600 text-sm uppercase tracking-tight">Diqqat: Qarzdorlik!</h4>
+                  <div className="flex flex-col gap-0.5 mt-1">
+                    {lowGrades.length > 0 && <span className="text-red-500 text-[10px] font-bold uppercase">• {lowGrades.length} ta past baho (Retake)</span>}
+                    {missingAssignments.length > 0 && <span className="text-red-500 text-[10px] font-bold uppercase">• {missingAssignments.length} ta baholanmagan dars</span>}
+                  </div>
+                </div>
+                <button onClick={() => setActiveTab(missingAssignments.length > 0 ? 'schedule' : 'grades')} className="p-2 bg-white text-red-500 rounded-xl shadow-sm z-10 hover:bg-red-50"><ArrowRight size={20} /></button>
+              </div>
+            )}
+
+            {/* WELCOME CARD */}
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-800 rounded-[2rem] p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
                <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-4">
-                   <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em]">Student Portal</span>
-                   {/* YANGI: Guruh Badge */}
-                   <span className="bg-amber-400/20 text-amber-300 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-400/30 flex items-center gap-1">
-                      <Users size={10} /> {groupName}
-                   </span>
-                </div>
-                
-                <h1 className="text-2xl sm:text-4xl font-black mb-2">Salom, {student.name.split(' ')[0]}!</h1>
-                <p className="text-indigo-100 mb-6 text-sm sm:text-base font-medium opacity-90">Siz hozir <b>{groupName}</b> guruhi bo'yicha ta'lim olyapsiz.</p>
-                
-                <div className="flex gap-3">
-                   <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/10"><p className="text-[9px] uppercase opacity-70">Baholar</p><p className="text-xl font-black">{grades.length}</p></div>
-                   <div className="bg-white/10 px-4 py-2 rounded-xl border border-white/10"><p className="text-[9px] uppercase opacity-70">Darslar</p><p className="text-xl font-black">{lessons.length}</p></div>
-                </div>
+                <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-4 inline-block">Student Portal</span>
+                <h1 className="text-2xl font-black mb-2">Salom, {student?.name ? student.name.split(' ')[0] : 'O\'quvchi'}!</h1>
+                <p className="text-indigo-100 text-xs font-medium opacity-80 mb-6">Sizning hozirgi o'rtacha ko'rsatkichingiz <b>{averageScore}%</b></p>
                </div>
-               <div className="absolute -right-5 -bottom-5 w-40 h-40 bg-white/10 rounded-full blur-3xl"></div>
+               <Award className="absolute -right-4 -bottom-4 text-white/10 w-32 h-32" />
             </div>
 
-            {/* Total Rating */}
-            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 text-center shadow-lg">
-               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Umumiy Reyting</p>
-               <h2 className="text-5xl font-black text-slate-800">{averageScore}<span className="text-lg text-indigo-400 ml-1">%</span></h2>
-            </div>
-
-            {/* Chart */}
-            <div className="bg-white p-4 sm:p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-              <h3 className="text-sm font-black text-slate-800 mb-4 px-2">Progress</h3>
-              <div className="h-[200px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={grades}>
-                    <defs><linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4F46E5" stopOpacity={0.2}/><stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/></linearGradient></defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                    <XAxis dataKey="dateStr" stroke="#94A3B8" fontSize={10} axisLine={false} tickLine={false} />
-                    <YAxis stroke="#94A3B8" fontSize={10} axisLine={false} tickLine={false} domain={[0, 100]} />
-                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none' }} />
-                    <Area type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={3} fill="url(#scoreGrad)" />
-                  </AreaChart>
-                </ResponsiveContainer>
+            {/* LEADERBOARD */}
+            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Trophy className="text-amber-500" size={20} />
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Guruh Liderlari</h3>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {topStudents.map((s, i) => (
+                  <div key={i} className={`flex items-center justify-between p-3 rounded-2xl border ${s.name === student?.name ? 'bg-indigo-50 border-indigo-100 ring-2 ring-indigo-100' : 'bg-slate-50/50 border-slate-100'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden">
+                           <img 
+                             src={getAvatarUrl(s.avatarSeed || s.name)} 
+                             alt={s.name} 
+                             className="w-full h-full object-cover"
+                           />
+                        </div>
+                        <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] border border-white text-white font-black ${i === 0 ? 'bg-amber-400' : i === 1 ? 'bg-slate-400' : 'bg-amber-700'}`}>
+                          {i+1}
+                        </div>
+                      </div>
+                      <span className="text-xs font-black text-slate-700">{s.name} {s.name === student?.name && "(Siz)"}</span>
+                    </div>
+                    <span className="text-xs font-black text-indigo-600">{s.avg}%</span>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Last Grades List */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-black text-slate-800 px-2">So'nggi Baholar</h3>
-              {grades.slice(-4).reverse().map((g, i) => (
-                <div key={i} className="bg-white p-4 rounded-2xl flex justify-between items-center border border-slate-100 shadow-sm">
-                  <div className="flex-1 min-w-0 pr-2">
-                    <p className="font-bold text-slate-700 text-xs truncate">{g.comment || 'Mavzu'}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-wide truncate">{g.taskType}</span>
-                        <span className="text-[8px] text-slate-400 uppercase">{g.dateStr}</span>
+            {/* PROGRESS CHART (Tuzatilgan qism: aniq style berildi) */}
+            <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm">
+               <h3 className="text-sm font-black text-slate-800 mb-4 px-2">Progress</h3>
+               
+               {/* MUHIM TUZATISH: style={{ height: 250 }} */}
+               <div style={{ width: '100%', height: 250 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={[...grades].reverse()}>
+                      <defs><linearGradient id="scoreColor" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4F46E5" stopOpacity={0.2}/><stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                      <XAxis dataKey="dateStr" fontSize={10} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: '15px', border: 'none' }} />
+                      <Area type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={3} fill="url(#scoreColor)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+               </div>
+            </div>
+          </div>
+        )}
+        
+        {/* 2. SCHEDULE TAB */}
+        {activeTab === 'schedule' && (
+          <div className="space-y-6 animate-in fade-in">
+            <h2 className="text-lg font-black text-slate-800 px-2 uppercase italic">Dars Jadvali</h2>
+            
+            {Object.keys(groupedLessons).map((month, index) => {
+              const monthLessons = groupedLessons[month];
+              const isExpanded = expandedMonths[month] || index === 0;
+              const hasTrouble = hasProblemInMonth(monthLessons);
+
+              return (
+                <div key={month} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                  <div onClick={() => toggleMonth(month)} className={`p-5 flex justify-between items-center cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600"><Calendar size={20} /></div>
+                      <div>
+                        <h3 className="font-black text-slate-800 text-sm uppercase tracking-wide">{month}</h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{monthLessons.length} ta dars</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {hasTrouble && <div className="flex items-center gap-1 bg-red-100 text-red-500 px-2 py-1 rounded-lg"><AlertCircle size={12} /><span className="text-[9px] font-black uppercase">Alert</span></div>}
+                      {isExpanded ? <ChevronUp className="text-slate-400" size={20}/> : <ChevronDown className="text-slate-400" size={20}/>}
                     </div>
                   </div>
-                  <div className={`font-black text-base ${g.score >= 80 ? 'text-emerald-500' : 'text-indigo-500'}`}>{g.score}%</div>
+
+                  {isExpanded && (
+                    <div className="p-4 space-y-4 border-t border-slate-100 bg-slate-50/30">
+                      {monthLessons.map((lesson) => {
+                        const lessonGrade = grades.find(g => g.lessonId === lesson.id);
+                        const isMissing = lesson.date < today && !lessonGrade;
+                        const isRetake = lessonGrade && lessonGrade.score <= 20;
+                        const isProblematic = isMissing || isRetake;
+
+                        return (
+                          <div key={lesson.id} className={`p-5 rounded-[2rem] border transition-all ${isProblematic ? 'bg-white border-red-200 shadow-md shadow-red-50' : 'bg-white border-slate-100 shadow-sm'}`}>
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <span className={`text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-widest ${isProblematic ? 'bg-red-500 text-white' : 'bg-indigo-50 text-indigo-600'}`}>{lesson.date}</span>
+                                <h4 className="font-black text-slate-800 text-sm mt-3 uppercase">{lesson.topic}</h4>
+                              </div>
+                              {isProblematic ? <AlertCircle className="text-red-500 animate-pulse" size={22} /> : <BookOpen className="text-slate-200" size={22} />}
+                            </div>
+                            
+                            {isProblematic && (
+                              <div className="mt-4 pt-4 border-t border-red-100 flex items-center gap-2 text-red-600 font-black text-[9px] uppercase tracking-tighter">
+                                <AlertCircle size={12} /> 
+                                {isMissing ? "Topshirilmagan / Baholanmagan" : `Past Baho: ${lessonGrade.score}% (Retake)`}
+                              </div>
+                            )}
+
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              {lesson.tasks?.map((t, idx) => (
+                                <span key={idx} className={`border px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter ${isProblematic ? 'bg-white border-red-100 text-red-400' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>{typeof t === 'object' ? t.text : t}</span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 3. GRADES TAB */}
+        {activeTab === 'grades' && (
+          <div className="space-y-4 animate-in fade-in">
+            <h2 className="text-lg font-black text-slate-800 px-2 uppercase italic">Barcha Baholar</h2>
+            <div className="space-y-3">
+              {[...grades].map((g, i) => (
+                <div key={i} className={`p-5 rounded-[2rem] border bg-white shadow-sm flex items-center justify-between ${g.score <= 20 ? 'border-red-200 bg-red-50/30' : 'border-slate-100'}`}>
+                  <div className="flex-1 pr-4">
+                    <p className="font-black text-slate-700 text-xs uppercase mb-2">{g.comment || 'Mavzu'}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[8px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-md uppercase tracking-widest">{g.taskType}</span>
+                      <span className="text-[8px] font-bold text-slate-400 uppercase">{g.dateStr}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-xl font-black ${g.score >= 80 ? 'text-emerald-500' : g.score <= 20 ? 'text-red-500' : 'text-indigo-600'}`}>{g.score}%</div>
+                    {g.score <= 20 && (
+                      <div className="flex items-center justify-end gap-1 mt-1 text-red-500 font-black text-[7px] uppercase tracking-tighter animate-pulse">
+                        <RefreshCcw size={8} /> Retake Required
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
-
           </div>
-        )}
-
-        {/* 2-KO'RINISH: JADVAL (O'zgarishsiz) */}
-        {activeTab === 'schedule' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="bg-white rounded-[2rem] border border-slate-100 shadow-lg overflow-hidden flex flex-col">
-              <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-                 <h2 className="text-lg font-black text-slate-800">Dars Jadvali</h2>
-                 <p className="text-slate-400 text-[10px] font-bold uppercase mt-1">Jami: {lessons.length} ta dars</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left min-w-[600px]">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-100 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                      <th className="px-4 py-4 w-24">Sana</th>
-                      <th className="px-4 py-4 w-1/3">Mavzu</th>
-                      <th className="px-4 py-4">Vazifalar</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 font-sans">
-                    {lessons.map((lesson) => {
-                      const status = getLessonStatus(lesson.date);
-                      return (
-                        <tr key={lesson.id} className="group">
-                          <td className="px-4 py-4 align-top">
-                            <span className="font-bold text-slate-800 text-xs block mb-1">{lesson.date}</span>
-                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${status.color}`}>{status.label}</span>
-                          </td>
-                          <td className="px-4 py-4 align-top">
-                             <h4 className="font-black text-slate-700 text-sm mb-1">{lesson.topic}</h4>
-                             <p className="text-[9px] font-bold text-slate-400 uppercase flex items-center"><Clock size={9} className="mr-1" /> Module</p>
-                          </td>
-                          <td className="px-4 py-4 align-top">
-                            <div className="flex flex-wrap gap-1.5">
-                              {lesson.tasks && lesson.tasks.length > 0 ? (
-                                lesson.tasks.map((task, idx) => (
-                                  <div key={idx} className="bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg flex items-center">
-                                     <div className="w-1 h-1 rounded-full bg-indigo-500 mr-1.5"></div>
-                                     <span className="text-[10px] font-bold text-slate-600">{typeof task === 'object' ? task.text : task}</span>
-                                  </div>
-                                ))
-                              ) : <span className="text-slate-300 text-[10px] italic">Yo'q</span>}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 3-KO'RINISH: BAHOLAR (O'zgarishsiz) */}
-        {activeTab === 'grades' && (
-           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-             <div className="bg-white rounded-[2rem] border border-slate-100 shadow-lg overflow-hidden flex flex-col">
-                <div className="p-6 border-b border-slate-100 bg-slate-50/50">
-                   <h2 className="text-lg font-black text-slate-800">Baho Tarixi</h2>
-                   <p className="text-slate-400 text-[10px] font-bold uppercase mt-1">Jami: {grades.length} ta</p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left min-w-[500px]">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-100 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                        <th className="px-4 py-4">Sana</th>
-                        <th className="px-4 py-4">Mavzu</th>
-                        <th className="px-4 py-4">Turi</th>
-                        <th className="px-4 py-4 text-right">Baho</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50 font-sans">
-                      {[...grades].reverse().map((grade, idx) => (
-                        <tr key={idx}>
-                          <td className="px-4 py-4 font-bold text-slate-500 text-xs">{grade.dateStr}</td>
-                          <td className="px-4 py-4 font-black text-slate-700 text-sm">{grade.comment}</td>
-                          <td className="px-4 py-4"><span className="bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest">{grade.taskType}</span></td>
-                          <td className="px-4 py-4 text-right"><span className={`text-base font-black ${grade.score >= 80 ? 'text-emerald-500' : grade.score >= 60 ? 'text-indigo-500' : 'text-red-500'}`}>{grade.score}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-             </div>
-           </div>
         )}
 
       </div>

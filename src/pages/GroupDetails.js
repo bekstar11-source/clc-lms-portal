@@ -2,16 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Star, X, Loader2, Edit2, Trash2, 
-  UserPlus, FileText, Users, CheckCircle2, Share2 // Share2 ikonkasi ko'chirish uchun
+  UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar
 } from 'lucide-react';
-import { db, auth } from '../firebase'; // auth import qilindi
+import { db, auth } from '../firebase';
 import { 
   collection, query, where, getDocs, addDoc, 
   doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc
 } from 'firebase/firestore';
 
 import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, 
+  AreaChart, Area, XAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer 
 } from 'recharts';
 
@@ -22,20 +22,25 @@ const GroupDetails = () => {
   const [groupName, setGroupName] = useState('');
   const [students, setStudents] = useState([]);
   const [lessons, setLessons] = useState([]); 
-  const [allGroups, setAllGroups] = useState([]); // Boshqa guruhlar ro'yxati uchun
+  const [allGroups, setAllGroups] = useState([]);
   
+  // Accordion States (Oylarni ochib-yopish uchun)
+  const [expandedMonths, setExpandedMonths] = useState({}); // Darslar uchun
+  const [expandedGradeMonths, setExpandedGradeMonths] = useState({}); // Baholar modali uchun
+
+  // MODALS STATE
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
   const [isAddLessonOpen, setIsAddLessonOpen] = useState(false); 
-  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false); // Ko'chirish modali
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   
+  // FORM STATES
+  const [addMode, setAddMode] = useState('single'); 
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
-  const [targetGroupId, setTargetGroupId] = useState(''); // Qaysi guruhga o'tkazish
-
-  const [addMode, setAddMode] = useState('single'); 
   const [bulkText, setBulkText] = useState('');
-  
+  const [targetGroupId, setTargetGroupId] = useState('');
+
   const [lessonTopic, setLessonTopic] = useState('');
   const [lessonDate, setLessonDate] = useState('');
   const [lessonTasks, setLessonTasks] = useState([{ text: 'Homework', completed: false }]); 
@@ -43,21 +48,16 @@ const GroupDetails = () => {
 
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedLesson, setSelectedLesson] = useState(null); 
-  
   const [gradeScores, setGradeScores] = useState({}); 
   const [existingGradeDocs, setExistingGradeDocs] = useState({});
-  
-  const [studentGrades, setStudentGrades] = useState([]);
+  const [studentGrades, setStudentGrades] = useState([]); // Grafik va Ro'yxat uchun
   const [loading, setLoading] = useState(false);
 
   const fetchData = async () => {
     try {
       const groupDoc = await getDoc(doc(db, "groups", groupId));
-      if (groupDoc.exists()) {
-        setGroupName(groupDoc.data().name);
-      } else {
-        navigate('/');
-      }
+      if (groupDoc.exists()) setGroupName(groupDoc.data().name);
+      else navigate('/');
 
       const qS = query(collection(db, "students"), where("groupId", "==", groupId));
       const snapS = await getDocs(qS);
@@ -66,240 +66,270 @@ const GroupDetails = () => {
       const qL = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
       const snapL = await getDocs(qL);
       setLessons(snapL.docs.map(d => ({ id: d.id, ...d.data() })));
-      
-      // Boshqa guruhlarni yuklash (O'quvchini ko'chirish uchun)
+
       const user = auth.currentUser;
-      const qG = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-      const snapG = await getDocs(qG);
-      setAllGroups(snapG.docs.map(d => ({ id: d.id, ...d.data() })).filter(g => g.id !== groupId));
-
-    } catch (e) { console.error("Fetch error:", e); }
+      if (user) {
+        const qG = query(collection(db, "groups"), where("teacherId", "==", user.uid));
+        const snapG = await getDocs(qG);
+        setAllGroups(snapG.docs.map(d => ({ id: d.id, ...d.data() })).filter(g => g.id !== groupId));
+      }
+    } catch (e) { console.error(e); }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [groupId]);
+  useEffect(() => { fetchData(); }, [groupId]);
 
+  // AVATAR URL GENERATOR
+  const getAvatarUrl = (seed) => {
+    const safeSeed = seed || "default";
+    if (safeSeed.startsWith('bot_')) {
+       const cleanSeed = safeSeed.replace('bot_', '');
+       return `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
+    } else {
+       const encodedSeed = encodeURIComponent(safeSeed);
+       return `https://api.dicebear.com/7.x/notionists/svg?seed=${encodedSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
+    }
+  };
+
+  // --- DARSLARNI OYLAR BO'YICHA GURUHLASH ---
+  const groupLessonsByMonth = () => {
+    const groups = {};
+    lessons.forEach(lesson => {
+      const date = new Date(lesson.date);
+      const monthKey = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+      if (!groups[monthKey]) groups[monthKey] = [];
+      groups[monthKey].push(lesson);
+    });
+    return groups;
+  };
+  const groupedLessons = groupLessonsByMonth();
+  const toggleMonth = (month) => setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
+
+  // --- BAHOLARNI OYLAR BO'YICHA GURUHLASH (MODAL UCHUN) ---
+  const groupGradesByMonth = () => {
+    const groups = {};
+    studentGrades.forEach(grade => {
+      if (grade.rawDate) {
+        const date = grade.rawDate.toDate(); 
+        const monthKey = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+        if (!groups[monthKey]) groups[monthKey] = [];
+        groups[monthKey].push(grade);
+      }
+    });
+    return groups;
+  };
+  const groupedGrades = groupGradesByMonth();
+  const toggleGradeMonth = (month) => setExpandedGradeMonths(prev => ({ ...prev, [month]: !prev[month] }));
+
+  // --- CRUD Functions ---
   const handleDeleteGroup = async () => {
-    const confirmDelete = window.confirm(
-      `DIQQAT! \n\n"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?\n\nBu amalni ortga qaytarib bo'lmaydi!`
-    );
-    if (confirmDelete) {
-      setLoading(true);
-      try {
-        await deleteDoc(doc(db, "groups", groupId));
-        navigate('/');
-      } catch (error) {
-        alert("Xatolik yuz berdi: " + error.message);
-        setLoading(false);
-      }
+    if (window.confirm(`"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?`)) {
+      setLoading(true); await deleteDoc(doc(db, "groups", groupId)); navigate('/');
     }
   };
-
-  const handleDeleteStudent = async (studentId, studentName) => {
-    if (window.confirm(`${studentName}ni o'chirishni xohlaysizmi?`)) {
-      try {
-        await deleteDoc(doc(db, "students", studentId));
-        fetchData();
-      } catch (error) { alert(error.message); }
-    }
-  };
-
-  // --- YANGI: O'QUVCHINI KO'CHIRISH FUNKSIYASI ---
-  const handleMoveStudent = async () => {
-    if (!targetGroupId) return alert("Iltimos, guruhni tanlang!");
-    setLoading(true);
-    try {
-      const studentRef = doc(db, "students", selectedStudent.id);
-      await updateDoc(studentRef, { groupId: targetGroupId });
-      
-      setIsMoveModalOpen(false);
-      setSelectedStudent(null);
-      setTargetGroupId('');
-      fetchData();
-      alert("O'quvchi muvaffaqiyatli ko'chirildi!");
-    } catch (error) {
-      alert("Xatolik: " + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-  // -----------------------------------------------
-
-  const handleDeleteLesson = async (lessonId, topicName) => {
-    if (window.confirm(`"${topicName}" mavzusini o'chirib yubormoqchimisiz?`)) {
-      try {
-        await deleteDoc(doc(db, "lessons", lessonId));
-        fetchData(); 
-      } catch (error) { alert("Xatolik: " + error.message); }
-    }
-  };
-
-  const deleteTaskFromLesson = async (lessonId, allTasks, indexToDelete) => {
-    if(!window.confirm("Vazifani o'chirmoqchimisiz?")) return;
-    try {
-      const updatedTasks = allTasks.filter((_, i) => i !== indexToDelete);
-      await updateDoc(doc(db, "lessons", lessonId), { tasks: updatedTasks });
-      fetchData();
-    } catch (error) { alert("Xatolik: " + error.message); }
-  };
-
-  const handleAddLesson = async (e) => {
-    e.preventDefault();
-    const tasks = lessonTasks.filter(t => t.text.trim() !== '');
-    try {
-      if (editingLesson) {
-        await updateDoc(doc(db, "lessons", editingLesson.id), { topic: lessonTopic, date: lessonDate, tasks: tasks });
-      } else {
-        await addDoc(collection(db, "lessons"), { groupId, topic: lessonTopic, date: lessonDate, tasks: tasks, createdAt: serverTimestamp() });
-      }
-      setIsAddLessonOpen(false); setEditingLesson(null); setLessonTopic(''); setLessonDate(''); setLessonTasks([{ text: 'Homework', completed: false }]);
-      fetchData();
-    } catch (error) { alert(error.message); }
-  };
-
   const handleBulkAddStudents = async () => {
-    if (!bulkText.trim()) return alert("Iltimos, ro'yxatni kiriting!");
-    setLoading(true);
-    try {
-      const lines = bulkText.split('\n').filter(line => line.trim() !== '');
-      const promises = lines.map(line => {
-        const parts = line.split(',');
-        if (parts.length >= 2) {
-          const name = parts[0].trim();
-          const email = parts[1].trim();
-          if (name && email.includes('@')) {
-             return addDoc(collection(db, "students"), {
-               name: name, email: email, groupId, joinedAt: serverTimestamp()
-             });
-          }
-        }
-        return null;
-      });
-      await Promise.all(promises);
-      setBulkText(''); setIsAddStudentOpen(false); fetchData();
-      alert(`${lines.length} ta o'quvchi muvaffaqiyatli qo'shildi!`);
-    } catch (error) { alert("Xatolik: " + error.message); } finally { setLoading(false); }
+    if (!bulkText.trim()) return; setLoading(true);
+    const lines = bulkText.split('\n').filter(l => l.includes(','));
+    await Promise.all(lines.map(line => {
+      const [name, email] = line.split(',').map(s => s.trim());
+      return addDoc(collection(db, "students"), { name, email, groupId, joinedAt: serverTimestamp() });
+    }));
+    setBulkText(''); setIsAddStudentOpen(false); fetchData(); setLoading(false);
   };
-
+  const handleMoveStudent = async () => {
+    if (!targetGroupId) return alert("Guruhni tanlang!"); setLoading(true);
+    try { await updateDoc(doc(db, "students", selectedStudent.id), { groupId: targetGroupId }); setIsMoveModalOpen(false); fetchData(); alert("Ko'chirildi!"); } 
+    catch (e) { alert(e.message); } finally { setLoading(false); }
+  };
+  const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(); }};
+  
   const openGradeModal = async (student) => {
-    setSelectedStudent(student); setSelectedLesson(null); setGradeScores({}); setExistingGradeDocs({}); setIsGradeModalOpen(true); setStudentGrades([]);
-    try {
-      const q = query(collection(db, "grades"), where("studentId", "==", student.id), orderBy("date", "asc"));
-      const snap = await getDocs(q);
-      const data = snap.docs.map(d => ({ score: d.data().score, date: d.data().date ? d.data().date.toDate().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) : "" }));
-      setStudentGrades(data);
-    } catch (error) { console.error(error); }
+    setSelectedStudent(student); setIsGradeModalOpen(true);
+    const q = query(collection(db, "grades"), where("studentId", "==", student.id), orderBy("date", "desc"));
+    const snap = await getDocs(q);
+    
+    const data = snap.docs.map(d => ({ 
+        id: d.id,
+        ...d.data(),
+        rawDate: d.data().date,
+        dateStr: d.data().date?.toDate().toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'})
+    }));
+    setStudentGrades(data);
   };
 
-  const handleLessonSelect = async (lessonId) => {
-    const lesson = lessons.find(l => l.id === lessonId);
-    setSelectedLesson(lesson);
-    const initialScores = {}; const docsMap = {};
-    if (lesson) {
-      lesson.tasks?.forEach(t => initialScores[typeof t === 'object' ? t.text : t] = '');
-      try {
-        const q = query(collection(db, "grades"), where("studentId", "==", selectedStudent.id), where("lessonId", "==", lesson.id));
-        const qs = await getDocs(q);
-        qs.forEach((doc) => { initialScores[doc.data().taskType] = doc.data().score; docsMap[doc.data().taskType] = doc.id; });
-      } catch (err) { console.error(err); }
+  const handleLessonSelect = async (lId) => {
+    const l = lessons.find(lx => lx.id === lId); setSelectedLesson(l);
+    const iS = {}; const dM = {};
+    if (l) {
+      l.tasks?.forEach(t => iS[typeof t === 'object' ? t.text : t] = '');
+      const q = query(collection(db, "grades"), where("studentId", "==", selectedStudent.id), where("lessonId", "==", l.id));
+      const qs = await getDocs(q); qs.forEach((d) => { iS[d.data().taskType] = d.data().score; dM[d.data().taskType] = d.id; });
     }
-    setGradeScores(initialScores); setExistingGradeDocs(docsMap);
+    setGradeScores(iS); setExistingGradeDocs(dM);
   };
 
   const handleSaveGrade = async (e) => {
-    e.preventDefault(); if (!selectedLesson) return;
-    const filteredScores = Object.entries(gradeScores).filter(([_, score]) => score !== '' && score !== null);
-    setLoading(true);
+    e.preventDefault(); if (!selectedLesson) return; setLoading(true);
+    const fS = Object.entries(gradeScores).filter(([_, s]) => s !== '' && s !== null);
     try {
-      for (const [taskType, score] of filteredScores) {
-        const existingDocId = existingGradeDocs[taskType];
-        if (existingDocId) {
-          if (window.confirm(`"${taskType}" bahosini o'zgartirasizmi?`)) await updateDoc(doc(db, "grades", existingDocId), { score: Number(score), date: serverTimestamp() });
-        } else {
-          await addDoc(collection(db, "grades"), { studentId: selectedStudent.id, studentName: selectedStudent.name, groupId, score: Number(score), comment: selectedLesson.topic, taskType: taskType, lessonId: selectedLesson.id, date: serverTimestamp() });
-        }
+      for (const [tT, sc] of fS) {
+        const eId = existingGradeDocs[tT];
+        if (eId) { if (window.confirm(`"${tT}" bahosi o'zgartirilsinmi?`)) await updateDoc(doc(db, "grades", eId), { score: Number(sc), date: serverTimestamp() }); } 
+        else { await addDoc(collection(db, "grades"), { studentId: selectedStudent.id, studentName: selectedStudent.name, groupId, score: Number(sc), comment: selectedLesson.topic, taskType: tT, lessonId: selectedLesson.id, date: serverTimestamp() }); }
       }
       setIsGradeModalOpen(false);
-    } catch (error) { alert("Xatolik: " + error.message); } finally { setLoading(false); }
+    } catch (er) { alert(er.message); } finally { setLoading(false); }
   };
+  
+  const handleDeleteLesson = async (id) => { if(window.confirm(`O'chirilsinmi?`)) { await deleteDoc(doc(db, "lessons", id)); fetchData(); }};
+  const deleteTaskFromLesson = async (lId, tasks, idx) => { if(window.confirm('Vazifa o\'chirilsinmi?')) { const u = tasks.filter((_,i)=>i!==idx); await updateDoc(doc(db,"lessons",lId),{tasks:u}); fetchData(); }};
+  const handleAddLesson = async (e) => { e.preventDefault(); const tasks = lessonTasks.filter(t=>t.text.trim()!==''); try { if(editingLesson) await updateDoc(doc(db,"lessons",editingLesson.id),{topic:lessonTopic,date:lessonDate,tasks}); else await addDoc(collection(db,"lessons"),{groupId,topic:lessonTopic,date:lessonDate,tasks,createdAt:serverTimestamp()}); setIsAddLessonOpen(false); setEditingLesson(null); setLessonTopic(''); setLessonDate(''); setLessonTasks([{text:'Homework',completed:false}]); fetchData(); } catch(e){alert(e.message);} };
 
-  if (loading && !isMoveModalOpen) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
+  if (loading && !isAddStudentOpen && !isMoveModalOpen) return <div className="h-screen flex items-center justify-center bg-white"><Loader2 className="animate-spin text-indigo-600" size={40}/></div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 sm:p-6 font-sans pb-24">
-      <div className="max-w-7xl mx-auto space-y-6">
-        
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center space-x-3 w-full sm:w-auto">
-            <button onClick={() => navigate(-1)} className="p-2 bg-white rounded-xl border border-slate-200 hover:bg-slate-50"><ArrowLeft size={20}/></button>
-            <h1 className="text-xl sm:text-3xl font-black text-slate-800 uppercase italic truncate max-w-[200px] sm:max-w-none">CLC: {groupName}</h1>
-            
-            <button onClick={handleDeleteGroup} className="p-2 bg-red-50 text-red-500 rounded-xl border border-red-100 hover:bg-red-500 hover:text-white transition-all ml-2" title="Guruhni o'chirish"><Trash2 size={20} /></button>
-          </div>
-          <div className="flex w-full sm:w-auto gap-2">
-             <button onClick={() => { setEditingLesson(null); setLessonTasks([{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="flex-1 sm:flex-none bg-white text-slate-700 border border-slate-200 px-4 py-3 rounded-xl font-black text-[10px] uppercase italic tracking-widest hover:bg-slate-50 text-center">+ Lesson</button>
-             <button onClick={() => setIsAddStudentOpen(true)} className="flex-1 sm:flex-none bg-indigo-600 text-white px-4 py-3 rounded-xl font-black text-[10px] uppercase italic tracking-widest shadow-lg shadow-indigo-100 text-center flex items-center justify-center gap-2"><UserPlus size={16} /> + Student</button>
+    <div className="min-h-screen bg-[#F8FAFC] pb-32">
+      
+      {/* 1. FIXED HEADER */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate('/')} className="p-2 rounded-full bg-slate-50 hover:bg-slate-100 transition-colors"><ArrowLeft size={20}/></button>
+          <div>
+            <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none uppercase italic">{groupName}</h1>
+            <p className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase">Teacher Panel</p>
           </div>
         </div>
+        <button onClick={handleDeleteGroup} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={20}/></button>
+      </header>
 
+      <div className="pt-24 px-6 max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Students List */}
+          
+          {/* 1. STUDENTS LIST */}
           <div className="lg:col-span-2 space-y-3">
-            <h2 className="text-lg font-black text-slate-800 flex items-center px-2 uppercase tracking-tighter">Students ({students.length})</h2>
-            <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left min-w-[500px]">
-                  <thead className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <tr><th className="px-6 py-4">Name</th><th className="px-6 py-4 text-center">Actions</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 font-bold text-slate-700">
-                    {students.map((s) => (
-                      <tr key={s.id} className="group hover:bg-slate-50/50">
-                        <td className="px-6 py-4 text-sm">{s.name}</td>
-                        <td className="px-6 py-4 flex justify-center space-x-2">
-                          <button onClick={() => openGradeModal(s)} className="flex items-center space-x-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><Star size={14}/><span>Grade</span></button>
-                          
-                          {/* KO'CHIRISH TUGMASI */}
-                          <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 rounded-lg" title="Guruhni almashtirish"><Share2 size={16}/></button>
-                          
-                          <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 size={16}/></button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+             <div className="flex justify-between items-center px-1">
+                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">All Students ({students.length})</h2>
+                <button onClick={() => setIsAddStudentOpen(true)} className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><UserPlus size={14}/> Add New</button>
+             </div>
+             
+             <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[500px]">
+                    <thead className="bg-slate-50/50 border-b border-slate-100 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                      <tr><th className="px-6 py-4">Student</th><th className="px-6 py-4 text-center">Actions</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 font-bold text-slate-700">
+                      {students.map((s) => (
+                        <tr key={s.id} className="group hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-3 flex items-center gap-3">
+                             <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 flex-shrink-0">
+                                <img src={getAvatarUrl(s.avatarSeed || s.name)} alt="" className="w-full h-full object-cover"/>
+                             </div>
+                             <span className="text-sm">{s.name}</span>
+                          </td>
+                          <td className="px-6 py-3 text-center">
+                            <div className="flex justify-center items-center space-x-2">
+                               <button onClick={() => openGradeModal(s)} className="flex items-center space-x-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><Star size={14}/><span>Grade</span></button>
+                               <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all"><Share2 size={16}/></button>
+                               <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"><Trash2 size={16}/></button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+             </div>
           </div>
 
-          {/* Course Plan */}
-          <div className="space-y-3">
-            <h2 className="text-lg font-black text-slate-800 flex items-center px-2 uppercase tracking-tighter">Course Plan</h2>
-            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
-              {lessons.map((l, idx) => (
-                <div key={idx} className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm border-l-4 border-l-amber-500 relative group">
-                  <div className="absolute top-3 right-3 flex gap-1">
-                    <button onClick={() => { setEditingLesson(l); setLessonTopic(l.topic); setLessonDate(l.date); setLessonTasks(l.tasks || [{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="p-1.5 bg-slate-50 text-slate-400 rounded-lg hover:text-indigo-600"><Edit2 size={14}/></button>
-                    <button onClick={() => handleDeleteLesson(l.id, l.topic)} className="p-1.5 bg-slate-50 text-slate-400 rounded-lg hover:text-red-500"><Trash2 size={14}/></button>
-                  </div>
-                  <div className="text-[9px] font-black text-amber-600 uppercase mb-1 bg-amber-50 w-fit px-2 py-0.5 rounded-lg">{l.date}</div>
-                  <h4 className="font-black text-slate-800 text-sm mb-2 uppercase w-[80%] leading-tight">{l.topic}</h4>
-                  <div className="flex flex-wrap gap-1.5">
-                    {l.tasks?.map((t, i) => (
-                       <div key={i} className="flex items-center bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-lg">
-                        <span className="text-[8px] text-slate-600 font-bold uppercase tracking-tighter mr-1">{typeof t === 'object' ? t.text : t}</span>
-                        <button onClick={() => deleteTaskFromLesson(l.id, l.tasks, i)} className="text-slate-300 hover:text-red-500"><X size={10} /></button>
+          {/* 2. COURSE PLAN (MONTHLY ACCORDION) */}
+          <div className="space-y-4">
+            <div className="flex justify-between items-center px-1">
+               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Course Journal</h2>
+               <button onClick={() => setIsAddLessonOpen(true)} className="p-2 bg-indigo-600 text-white rounded-xl tap-active shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"><Plus size={18}/></button>
+            </div>
+            
+            <div className="space-y-3 max-h-[calc(100vh-150px)] overflow-y-auto pr-1 custom-scrollbar">
+              {Object.keys(groupedLessons).length === 0 && <p className="text-center text-slate-400 text-xs py-4">Hozircha darslar yo'q</p>}
+              
+              {Object.keys(groupedLessons).map((month, index) => {
+                const monthLessons = groupedLessons[month];
+                const isExpanded = expandedMonths[month] || index === 0;
+
+                return (
+                  <div key={month} className="bg-white rounded-[1.5rem] border border-slate-200 shadow-sm overflow-hidden">
+                    <div onClick={() => toggleMonth(month)} className={`p-4 flex justify-between items-center cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}>
+                      <div className="flex items-center gap-2">
+                        <Calendar size={18} className="text-indigo-500" />
+                        <span className="font-black text-slate-700 text-xs uppercase tracking-wide">{month}</span>
                       </div>
-                    ))}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{monthLessons.length}</span>
+                        {isExpanded ? <ChevronUp size={16} className="text-slate-400"/> : <ChevronDown size={16} className="text-slate-400"/>}
+                      </div>
+                    </div>
+                    {isExpanded && (
+                      <div className="border-t border-slate-100 bg-slate-50/30 p-2 space-y-2">
+                        {monthLessons.map((l) => (
+                          <div key={l.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-colors">
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => { setEditingLesson(l); setLessonTopic(l.topic); setLessonDate(l.date); setLessonTasks(l.tasks || [{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="p-1 bg-slate-50 text-slate-400 rounded hover:text-indigo-600"><Edit2 size={12}/></button>
+                              <button onClick={() => handleDeleteLesson(l.id)} className="p-1 bg-slate-50 text-slate-400 rounded hover:text-red-500"><Trash2 size={12}/></button>
+                            </div>
+                            <div className="flex items-start gap-3">
+                               <div className="flex flex-col items-center justify-center bg-slate-100 rounded-lg p-1.5 min-w-[3rem]">
+                                  <span className="text-[8px] font-black text-slate-500 uppercase">{l.date.split('-')[1]}</span>
+                                  <span className="text-sm font-black text-slate-800 leading-none">{l.date.split('-')[2]}</span>
+                               </div>
+                               <div>
+                                  <h4 className="font-bold text-slate-700 text-xs uppercase leading-tight pr-6">{l.topic}</h4>
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {l.tasks?.map((t, i) => (
+                                      <div key={i} className="flex items-center bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded text-[8px] text-slate-500 uppercase font-bold">
+                                        {typeof t === 'object' ? t.text : t}
+                                        <button onClick={() => deleteTaskFromLesson(l.id, l.tasks, i)} className="ml-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={8} /></button>
+                                      </div>
+                                    ))}
+                                  </div>
+                               </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
       </div>
+
+      {/* --- MODALS --- */}
+      
+      {/* ADD STUDENT MODAL */}
+      {isAddStudentOpen && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
+          <div className="bg-white w-full sm:w-auto sm:min-w-[500px] rounded-t-[3rem] sm:rounded-[2.5rem] p-8 pb-12 relative z-10 shadow-2xl">
+            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase italic text-center">Add Students</h3>
+            <div className="flex bg-slate-50 p-1 rounded-2xl mb-6 border border-slate-100">
+               <button onClick={() => setAddMode('single')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Single</button>
+               <button onClick={() => setAddMode('bulk')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'bulk' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Bulk Import</button>
+            </div>
+            {addMode === 'single' ? (
+              <div className="space-y-4">
+                <input type="text" placeholder="Full Name" className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-600" value={newStudentName} onChange={e=>setNewStudentName(e.target.value)} />
+                <input type="email" placeholder="Email Address" className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-600" value={newStudentEmail} onChange={e=>setNewStudentEmail(e.target.value)} />
+              </div>
+            ) : (
+              <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-40 px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-600" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
+            )}
+            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp() }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active">
+              {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Complete Registration'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MOVE STUDENT MODAL */}
       {isMoveModalOpen && (
@@ -307,80 +337,114 @@ const GroupDetails = () => {
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMoveModalOpen(false)}></div>
           <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md relative z-10 shadow-2xl">
             <h3 className="text-xl font-black text-slate-800 mb-2 uppercase italic tracking-tight">Move Student</h3>
-            <p className="text-slate-400 text-sm font-bold mb-6">O'quvchi: <span className="text-indigo-600">{selectedStudent?.name}</span></p>
-            
+            <div className="flex items-center gap-3 mb-6 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+               <div className="w-10 h-10 rounded-full bg-white border border-slate-200 overflow-hidden">
+                   <img src={getAvatarUrl(selectedStudent?.avatarSeed || selectedStudent?.name)} className="w-full h-full object-cover" alt="" />
+               </div>
+               <span className="font-bold text-slate-700">{selectedStudent?.name}</span>
+            </div>
             <div className="space-y-4">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Group</label>
-              <select 
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-                value={targetGroupId}
-                onChange={(e) => setTargetGroupId(e.target.value)}
-              >
+              <select className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none" value={targetGroupId} onChange={(e) => setTargetGroupId(e.target.value)}>
                 <option value="">Guruhni tanlang...</option>
                 {allGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
-              
-              <button 
-                onClick={handleMoveStudent}
-                disabled={loading}
-                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center"
-              >
-                {loading ? <Loader2 className="animate-spin" /> : "O'tkazishni tasdiqlash"}
+              <button onClick={handleMoveStudent} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center">
+                {loading ? <Loader2 className="animate-spin" /> : "Confirm Move"}
               </button>
-              
-              <button onClick={() => setIsMoveModalOpen(false)} className="w-full py-2 text-slate-400 font-black text-[10px] uppercase tracking-widest">Bekor qilish</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ADD STUDENT MODAL */}
-      {isAddStudentOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
-          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-lg relative z-10 shadow-2xl">
-            <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase text-center italic tracking-tight">Add New Student</h3>
-            <div className="flex bg-slate-50 p-1.5 rounded-2xl mb-6 border border-slate-100">
-               <button onClick={() => setAddMode('single')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}><UserPlus size={16} /> Bittalab</button>
-               <button onClick={() => setAddMode('bulk')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${addMode === 'bulk' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}><Users size={16} /> Ko'pplab</button>
-            </div>
-            {addMode === 'single' ? (
-              <form onSubmit={async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp() }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); }} className="space-y-4">
-                <input type="text" placeholder="Full Name" required className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm" value={newStudentName} onChange={e => setNewStudentName(e.target.value)} />
-                <input type="email" placeholder="Email Address" required className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm" value={newStudentEmail} onChange={e => setNewStudentEmail(e.target.value)} />
-                <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest italic hover:bg-indigo-700">Add to Group</button>
-              </form>
-            ) : (
-              <div className="space-y-4">
-                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100"><p className="text-[10px] font-bold text-indigo-600 mb-1 flex items-center"><FileText size={12} className="mr-1"/> Format:</p><code className="text-xs text-slate-600 font-mono block bg-white p-2 rounded-lg border border-indigo-100">Ali Valiyev, ali@mail.ru <br/>Guli Karimova, guli@gmail.com</code></div>
-                <textarea className="w-full h-40 px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Ism Familiya, email..." value={bulkText} onChange={(e) => setBulkText(e.target.value)}></textarea>
-                <button onClick={handleBulkAddStudents} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest italic hover:bg-indigo-700 flex items-center justify-center gap-2">{loading ? <Loader2 className="animate-spin" /> : <><CheckCircle2 size={16} /> Import All Students</>}</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      
+      {/* GRADE MODAL (FIXED HEIGHT CHART & ACCORDION HISTORY) */}
       {isGradeModalOpen && selectedStudent && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsGradeModalOpen(false)}></div>
-          <div className="bg-white rounded-[2rem] w-full max-w-5xl relative z-10 overflow-hidden flex flex-col lg:flex-row max-h-[90vh] shadow-2xl">
-            <div className="lg:w-1/2 bg-slate-50 p-6 flex flex-col border-b lg:border-b-0 lg:border-r border-slate-100 overflow-y-auto max-h-[40vh] lg:max-h-none">
-              <div className="mb-4"><span className="text-[9px] font-black text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded-md">Analytics</span><h3 className="text-lg font-black text-slate-800 mt-1">{selectedStudent.name}</h3></div>
-              <div className="h-[200px] w-full mb-4 bg-white p-2 rounded-2xl border border-slate-100"><ResponsiveContainer width="100%" height="100%"><LineChart data={studentGrades}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" /><XAxis dataKey="date" fontSize={10} axisLine={false} tickLine={false} /><YAxis domain={[0, 100]} fontSize={10} axisLine={false} tickLine={false} width={25} /><Tooltip /><Line type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={3} dot={{ fill: '#4F46E5', r: 3 }} /></LineChart></ResponsiveContainer></div>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-white/60 backdrop-blur-xl animate-in fade-in duration-500" onClick={() => setIsGradeModalOpen(false)}></div>
+          <div className="bg-white/90 border border-white shadow-2xl rounded-[3rem] w-full max-w-4xl relative z-10 overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
+            
+            {/* CHAP TOMON: GRAFIK */}
+            <div className="md:w-1/2 p-8 bg-indigo-600 text-white relative overflow-hidden flex flex-col">
+               <div className="relative z-10 flex-1 flex flex-col">
+                 <div className="w-20 h-20 rounded-full border-4 border-white/20 mb-4 overflow-hidden bg-white/10">
+                    <img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt="" />
+                 </div>
+                 <h3 className="text-3xl font-black mb-1">{selectedStudent.name}</h3>
+                 <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-6">Performance Report</p>
+                 
+                 {/* CHART FIX: Aniq balandlik berildi */}
+                 <div className="w-full h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={[...studentGrades].reverse()}>
+                         <defs><linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#fff" stopOpacity={0.3}/><stop offset="95%" stopColor="#fff" stopOpacity={0}/></linearGradient></defs>
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
+                         <XAxis dataKey="dateStr" stroke="rgba(255,255,255,0.5)" fontSize={10} axisLine={false} tickLine={false} />
+                         <Tooltip contentStyle={{background:'#fff', borderRadius:'12px', color:'#1e293b', border:'none'}} />
+                         <Area type="monotone" dataKey="score" stroke="#fff" strokeWidth={3} fill="url(#colorScore)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                 </div>
+               </div>
             </div>
-            <div className="lg:w-1/2 p-6 flex flex-col overflow-y-auto flex-1">
-              <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-black text-slate-800 uppercase italic">Add Grades</h3><button onClick={() => setIsGradeModalOpen(false)} className="text-slate-400 p-2"><X size={20} /></button></div>
-              <form onSubmit={handleSaveGrade} className="space-y-5 pb-20 lg:pb-0">
-                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Select Lesson</label><select required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-sm" value={selectedLesson?.id || ''} onChange={(e) => handleLessonSelect(e.target.value)}><option value="">-- Choose lesson --</option>{lessons.map((l) => <option key={l.id} value={l.id}>{l.date} - {l.topic}</option>)}</select></div>
-                {selectedLesson && (<div className="space-y-3">{selectedLesson.tasks?.map((task, idx) => { const taskName = typeof task === 'object' ? task.text : task; const hasExistingGrade = existingGradeDocs[taskName] !== undefined; return (<div key={idx} className={`flex items-center justify-between p-3 border rounded-xl ${hasExistingGrade ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-slate-200'}`}><span className={`font-bold text-xs ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-700'}`}>{taskName}</span><input type="number" min="0" max="100" placeholder="-" className={`w-16 text-center font-black text-indigo-600 py-2 rounded-lg outline-none text-sm ${hasExistingGrade ? 'bg-white' : 'bg-slate-50'}`} value={gradeScores[taskName] || ''} onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} /></div>); })}</div>)}
-                <button type="submit" disabled={loading || !selectedLesson} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black shadow-lg uppercase text-[10px] tracking-widest">{loading ? "Saving..." : "Save Scores"}</button>
+
+            {/* O'NG TOMON: BAHOLASH VA TARIX (GARMOSHKA) */}
+            <div className="md:w-1/2 p-8 overflow-y-auto flex flex-col">
+              <div className="flex justify-between items-center mb-6">
+                <h4 className="text-lg font-black text-slate-800 uppercase italic">Evaluation</h4>
+                <button onClick={() => setIsGradeModalOpen(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 tap-active"><X size={20}/></button>
+              </div>
+
+              {/* 1. Baholash Formasi */}
+              <form onSubmit={handleSaveGrade} className="space-y-4 mb-8">
+                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lesson</label><select required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-sm" value={selectedLesson?.id || ''} onChange={(e) => handleLessonSelect(e.target.value)}><option value="">-- Choose lesson --</option>{lessons.map((l) => <option key={l.id} value={l.id}>{l.date} - {l.topic}</option>)}</select></div>
+                {selectedLesson && (<div className="space-y-2">{selectedLesson.tasks?.map((task, idx) => { const taskName = typeof task === 'object' ? task.text : task; const hasExistingGrade = existingGradeDocs[taskName] !== undefined; return (<div key={idx} className={`flex items-center justify-between p-3 border rounded-xl ${hasExistingGrade ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-slate-200'}`}><span className={`font-bold text-xs ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-700'}`}>{taskName}</span><input type="number" min="0" max="100" placeholder="-" className={`w-16 text-center font-black text-indigo-600 py-2 rounded-lg outline-none text-sm ${hasExistingGrade ? 'bg-white' : 'bg-slate-50'}`} value={gradeScores[taskName] || ''} onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} /></div>); })}</div>)}
+                <button type="submit" disabled={loading || !selectedLesson} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black shadow-lg uppercase text-[10px] tracking-widest">{loading ? "Saving..." : "Save Scores"}</button>
               </form>
+
+              {/* 2. Baholar Tarixi (OYLIK GARMOSHKA) */}
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Grade History</h4>
+              <div className="space-y-2">
+                {Object.keys(groupedGrades).length === 0 && <p className="text-slate-400 text-xs italic">Hozircha baholar yo'q.</p>}
+                
+                {Object.keys(groupedGrades).map((month, index) => {
+                   const mGrades = groupedGrades[month];
+                   const isExp = expandedGradeMonths[month] || index === 0;
+
+                   return (
+                     <div key={month} className="border border-slate-100 rounded-xl overflow-hidden">
+                        <div onClick={() => toggleGradeMonth(month)} className="p-3 bg-slate-50 flex justify-between items-center cursor-pointer">
+                           <span className="text-[10px] font-black uppercase text-slate-600">{month}</span>
+                           <div className="flex items-center gap-2">
+                              <span className="bg-white px-2 py-0.5 rounded text-[9px] font-bold text-slate-400">{mGrades.length}</span>
+                              {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                           </div>
+                        </div>
+                        {isExp && (
+                           <div className="bg-white divide-y divide-slate-50">
+                              {mGrades.map((g) => (
+                                <div key={g.id} className="p-3 flex justify-between items-center">
+                                   <div>
+                                      <p className="text-[10px] font-black text-slate-700 uppercase">{g.comment}</p>
+                                      <div className="flex gap-2">
+                                         <span className="text-[9px] text-slate-400">{g.dateStr}</span>
+                                         <span className="text-[9px] text-indigo-400 font-bold uppercase">{g.taskType}</span>
+                                      </div>
+                                   </div>
+                                   <div className={`text-sm font-black ${g.score >= 80 ? 'text-emerald-500' : 'text-indigo-600'}`}>{g.score}</div>
+                                </div>
+                              ))}
+                           </div>
+                        )}
+                     </div>
+                   );
+                })}
+              </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* ADD LESSON MODAL */}
       {isAddLessonOpen && (
          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => {setIsAddLessonOpen(false); setEditingLesson(null);}}></div>
@@ -404,6 +468,7 @@ const GroupDetails = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };

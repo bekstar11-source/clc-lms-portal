@@ -1,19 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // useEffect qo'shildi
+import { useNavigate } from 'react-router-dom'; // navigate qo'shildi
 import { auth } from '../firebase';
 import { updatePassword, updateProfile } from 'firebase/auth';
-import { User, Lock, Save, ShieldCheck, Mail, Settings as SettingsIcon } from 'lucide-react'; // Settings nomi SettingsIcon ga o'zgartirildi
+import { User, Lock, Save, ShieldCheck, Mail, Settings as SettingsIcon } from 'lucide-react';
 
 const Settings = () => {
-  const user = auth.currentUser;
-  const [name, setName] = useState(user?.displayName || '');
+  const navigate = useNavigate();
+  const user = auth.currentUser; // Hozirgi foydalanuvchi
+  
+  // 1. Agar user null bo'lsa, xatolik bermasligi uchun tekshiruv:
+  const [name, setName] = useState('');
   const [newPass, setNewPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
+  // 2. User yuklangandan keyin ismni olish
+  useEffect(() => {
+    if (user) {
+      setName(user.displayName || '');
+    } else {
+      // Agar user tizimga kirmagan bo'lsa, login sahifasiga otib yuborish
+      navigate('/'); 
+    }
+  }, [user, navigate]);
+
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
+    if (!user) return; // Himoya
+
     setLoading(true);
-    setMessage({ type: '', text: '' }); // Xabarni tozalash
+    setMessage({ type: '', text: '' });
 
     try {
       if (name && name !== user.displayName) {
@@ -35,8 +51,11 @@ const Settings = () => {
     }
   };
 
+  // Agar user hali yuklanmagan bo'lsa (loading holati)
+  if (!user) return <div className="p-10 text-center text-slate-500">Yuklanmoqda...</div>;
+
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-8 font-sans">
+    <div className="p-8 max-w-4xl mx-auto space-y-8 font-sans pb-32"> {/* pb-32 qo'shildi pastki qism ko'rinishi uchun */}
       <div className="flex items-center space-x-4 mb-10">
         <div className="p-4 bg-indigo-600 rounded-3xl text-white shadow-lg shadow-indigo-100">
           <SettingsIcon size={32} />
@@ -114,7 +133,7 @@ const Settings = () => {
             <div className="w-24 h-24 bg-white rounded-[2rem] flex items-center justify-center text-indigo-600 mx-auto mb-6 shadow-xl font-black text-4xl italic">
               {name ? name.charAt(0).toUpperCase() : (user?.email?.charAt(0).toUpperCase() || 'U')}
             </div>
-            <h3 className="font-black text-slate-800 text-xl">{name || "Ustoz"}</h3>
+            <h3 className="font-black text-slate-800 text-xl">{name || "Foydalanuvchi"}</h3>
             <p className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mt-2">Administrator</p>
           </div>
         </div>
