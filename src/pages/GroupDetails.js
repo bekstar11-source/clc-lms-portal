@@ -367,9 +367,9 @@ const GroupDetails = () => {
             {/* CHAP TOMON: FAQAT PROFIL (Grafik olib tashlandi) */}
             <div className="md:w-1/3 p-8 bg-indigo-600 text-white relative flex flex-col items-center justify-center text-center">
                <div className="relative z-10">
-                 <div className="w-32 h-32 mx-auto rounded-full border-4 border-white/20 mb-6 overflow-hidden bg-white/10 shadow-lg">
-                    <img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt="" />
-                 </div>
+               <div className="w-20 h-20 mx-auto rounded-full border-4 border-white/20 mb-4 overflow-hidden bg-white/10 shadow-lg">
+   <img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt="" />
+</div>
                  <h3 className="text-2xl font-black mb-2">{selectedStudent.name}</h3>
                  <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest">Student Profile</p>
                </div>
