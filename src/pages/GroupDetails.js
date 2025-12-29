@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Star, X, Loader2, Edit2, Trash2, 
-  UserPlus, FileText, Users, CheckCircle2 
+  UserPlus, FileText, Users, CheckCircle2, Share2 // Share2 ikonkasi ko'chirish uchun
 } from 'lucide-react';
-import { db } from '../firebase';
+import { db, auth } from '../firebase'; // auth import qilindi
 import { 
   collection, query, where, getDocs, addDoc, 
   doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc
@@ -22,16 +22,17 @@ const GroupDetails = () => {
   const [groupName, setGroupName] = useState('');
   const [students, setStudents] = useState([]);
   const [lessons, setLessons] = useState([]); 
+  const [allGroups, setAllGroups] = useState([]); // Boshqa guruhlar ro'yxati uchun
   
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
   const [isAddLessonOpen, setIsAddLessonOpen] = useState(false); 
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false); // Ko'chirish modali
   
-  // SINGLE ADD STATE
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
+  const [targetGroupId, setTargetGroupId] = useState(''); // Qaysi guruhga o'tkazish
 
-  // BULK ADD STATE
   const [addMode, setAddMode] = useState('single'); 
   const [bulkText, setBulkText] = useState('');
   
@@ -55,7 +56,6 @@ const GroupDetails = () => {
       if (groupDoc.exists()) {
         setGroupName(groupDoc.data().name);
       } else {
-        // Agar guruh topilmasa (masalan o'chib ketgan bo'lsa)
         navigate('/');
       }
 
@@ -66,6 +66,13 @@ const GroupDetails = () => {
       const qL = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
       const snapL = await getDocs(qL);
       setLessons(snapL.docs.map(d => ({ id: d.id, ...d.data() })));
+      
+      // Boshqa guruhlarni yuklash (O'quvchini ko'chirish uchun)
+      const user = auth.currentUser;
+      const qG = query(collection(db, "groups"), where("teacherId", "==", user.uid));
+      const snapG = await getDocs(qG);
+      setAllGroups(snapG.docs.map(d => ({ id: d.id, ...d.data() })).filter(g => g.id !== groupId));
+
     } catch (e) { console.error("Fetch error:", e); }
   };
 
@@ -73,19 +80,14 @@ const GroupDetails = () => {
     fetchData();
   }, [groupId]);
 
-  // --- YANGI: GURUHNI O'CHIRISH FUNKSIYASI ---
   const handleDeleteGroup = async () => {
     const confirmDelete = window.confirm(
       `DIQQAT! \n\n"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?\n\nBu amalni ortga qaytarib bo'lmaydi!`
     );
-
     if (confirmDelete) {
       setLoading(true);
       try {
-        // 1. Guruhni o'chiramiz
         await deleteDoc(doc(db, "groups", groupId));
-        
-        // 2. Bosh sahifaga qaytamiz
         navigate('/');
       } catch (error) {
         alert("Xatolik yuz berdi: " + error.message);
@@ -93,7 +95,6 @@ const GroupDetails = () => {
       }
     }
   };
-  // ---------------------------------------------
 
   const handleDeleteStudent = async (studentId, studentName) => {
     if (window.confirm(`${studentName}ni o'chirishni xohlaysizmi?`)) {
@@ -103,6 +104,27 @@ const GroupDetails = () => {
       } catch (error) { alert(error.message); }
     }
   };
+
+  // --- YANGI: O'QUVCHINI KO'CHIRISH FUNKSIYASI ---
+  const handleMoveStudent = async () => {
+    if (!targetGroupId) return alert("Iltimos, guruhni tanlang!");
+    setLoading(true);
+    try {
+      const studentRef = doc(db, "students", selectedStudent.id);
+      await updateDoc(studentRef, { groupId: targetGroupId });
+      
+      setIsMoveModalOpen(false);
+      setSelectedStudent(null);
+      setTargetGroupId('');
+      fetchData();
+      alert("O'quvchi muvaffaqiyatli ko'chirildi!");
+    } catch (error) {
+      alert("Xatolik: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  // -----------------------------------------------
 
   const handleDeleteLesson = async (lessonId, topicName) => {
     if (window.confirm(`"${topicName}" mavzusini o'chirib yubormoqchimisiz?`)) {
@@ -139,7 +161,6 @@ const GroupDetails = () => {
   const handleBulkAddStudents = async () => {
     if (!bulkText.trim()) return alert("Iltimos, ro'yxatni kiriting!");
     setLoading(true);
-
     try {
       const lines = bulkText.split('\n').filter(line => line.trim() !== '');
       const promises = lines.map(line => {
@@ -203,28 +224,19 @@ const GroupDetails = () => {
     } catch (error) { alert("Xatolik: " + error.message); } finally { setLoading(false); }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
+  if (loading && !isMoveModalOpen) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6 font-sans pb-24">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header - DELETE BUTTON QO'SHILDI */}
+        {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center space-x-3 w-full sm:w-auto">
             <button onClick={() => navigate(-1)} className="p-2 bg-white rounded-xl border border-slate-200 hover:bg-slate-50"><ArrowLeft size={20}/></button>
             <h1 className="text-xl sm:text-3xl font-black text-slate-800 uppercase italic truncate max-w-[200px] sm:max-w-none">CLC: {groupName}</h1>
             
-            {/* --- YANGI: Delete Group Button --- */}
-            <button 
-              onClick={handleDeleteGroup}
-              className="p-2 bg-red-50 text-red-500 rounded-xl border border-red-100 hover:bg-red-500 hover:text-white transition-all ml-2"
-              title="Guruhni o'chirish"
-            >
-              <Trash2 size={20} />
-            </button>
-            {/* ---------------------------------- */}
-          
+            <button onClick={handleDeleteGroup} className="p-2 bg-red-50 text-red-500 rounded-xl border border-red-100 hover:bg-red-500 hover:text-white transition-all ml-2" title="Guruhni o'chirish"><Trash2 size={20} /></button>
           </div>
           <div className="flex w-full sm:w-auto gap-2">
              <button onClick={() => { setEditingLesson(null); setLessonTasks([{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="flex-1 sm:flex-none bg-white text-slate-700 border border-slate-200 px-4 py-3 rounded-xl font-black text-[10px] uppercase italic tracking-widest hover:bg-slate-50 text-center">+ Lesson</button>
@@ -248,6 +260,10 @@ const GroupDetails = () => {
                         <td className="px-6 py-4 text-sm">{s.name}</td>
                         <td className="px-6 py-4 flex justify-center space-x-2">
                           <button onClick={() => openGradeModal(s)} className="flex items-center space-x-1 px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><Star size={14}/><span>Grade</span></button>
+                          
+                          {/* KO'CHIRISH TUGMASI */}
+                          <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 rounded-lg" title="Guruhni almashtirish"><Share2 size={16}/></button>
+                          
                           <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg"><Trash2 size={16}/></button>
                         </td>
                       </tr>
@@ -285,7 +301,40 @@ const GroupDetails = () => {
         </div>
       </div>
 
-      {/* MODALS */}
+      {/* MOVE STUDENT MODAL */}
+      {isMoveModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMoveModalOpen(false)}></div>
+          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md relative z-10 shadow-2xl">
+            <h3 className="text-xl font-black text-slate-800 mb-2 uppercase italic tracking-tight">Move Student</h3>
+            <p className="text-slate-400 text-sm font-bold mb-6">O'quvchi: <span className="text-indigo-600">{selectedStudent?.name}</span></p>
+            
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Target Group</label>
+              <select 
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                value={targetGroupId}
+                onChange={(e) => setTargetGroupId(e.target.value)}
+              >
+                <option value="">Guruhni tanlang...</option>
+                {allGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              
+              <button 
+                onClick={handleMoveStudent}
+                disabled={loading}
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center"
+              >
+                {loading ? <Loader2 className="animate-spin" /> : "O'tkazishni tasdiqlash"}
+              </button>
+              
+              <button onClick={() => setIsMoveModalOpen(false)} className="w-full py-2 text-slate-400 font-black text-[10px] uppercase tracking-widest">Bekor qilish</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD STUDENT MODAL */}
       {isAddStudentOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
