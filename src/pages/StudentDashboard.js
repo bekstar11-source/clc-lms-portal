@@ -35,12 +35,10 @@ const StudentDashboard = () => {
       if (!user) { navigate('/'); return; }
 
       try {
-        // 1. O'quvchini topish
         const qS = query(collection(db, "students"), where("email", "==", user.email));
         const snapS = await getDocs(qS);
         
         if (snapS.empty) { 
-          console.error("O'quvchi topilmadi");
           setLoading(false); 
           return; 
         }
@@ -49,12 +47,10 @@ const StudentDashboard = () => {
         const studentData = { id: studentDoc.id, ...studentDoc.data() };
         setStudent(studentData);
 
-        // Agar o'quvchining guruhi bo'lsa
         if (studentData.groupId) {
           const groupSnap = await getDoc(doc(db, "groups", studentData.groupId));
           if (groupSnap.exists()) setGroupName(groupSnap.data().name);
 
-          // 2. Leaderboard Logic
           const qAllStudents = query(collection(db, "students"), where("groupId", "==", studentData.groupId));
           const snapAllStudents = await getDocs(qAllStudents);
           
@@ -76,7 +72,6 @@ const StudentDashboard = () => {
           
           setTopStudents(leaderData);
 
-          // 3. Lessons
           const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "desc"));
           const lessonsSnapshot = await getDocs(lessonsQuery);
           
@@ -91,7 +86,6 @@ const StudentDashboard = () => {
           setLessons(fetchedLessons);
         }
 
-        // 4. Grades
         const gradesQuery = query(collection(db, "grades"), where("studentId", "==", studentData.id), orderBy("date", "desc"));
         const gradesSnapshot = await getDocs(gradesQuery);
         const fetchedGrades = gradesSnapshot.docs.map(doc => {
@@ -105,7 +99,6 @@ const StudentDashboard = () => {
         
         setGrades(fetchedGrades); 
 
-        // Bildirishnomalarni generatsiya qilish
         if (studentData.groupId) {
              generateNotifications(fetchedGrades, []); 
         }
@@ -128,7 +121,6 @@ const StudentDashboard = () => {
     
     const newNotifs = [];
 
-    // Yangi baholar
     allGrades.forEach(g => {
       if (g.rawDate && g.rawDate > lastCheckDate) {
         newNotifs.push({
@@ -142,7 +134,6 @@ const StudentDashboard = () => {
       }
     });
 
-    // Yangi darslar
     if (allLessons) {
         allLessons.forEach(l => {
             if (l.rawDate && l.rawDate > lastCheckDate) {
@@ -254,7 +245,6 @@ const StudentDashboard = () => {
         </div>
         
         <div className="flex gap-2 items-center" ref={notifRef}>
-          {/* NOTIFICATION BELL */}
           <div className="relative">
             <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-slate-50'}`}>
               <Bell size={20} />
@@ -333,7 +323,6 @@ const StudentDashboard = () => {
               </div>
             )}
 
-            {/* WELCOME CARD */}
             <div className="bg-gradient-to-br from-indigo-600 to-violet-800 rounded-[2rem] p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
                <div className="relative z-10">
                 <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-4 inline-block">Student Portal</span>
@@ -343,7 +332,6 @@ const StudentDashboard = () => {
                <Award className="absolute -right-4 -bottom-4 text-white/10 w-32 h-32" />
             </div>
 
-            {/* LEADERBOARD */}
             <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
               <div className="flex items-center gap-2 mb-2">
                 <Trophy className="text-amber-500" size={20} />
@@ -373,13 +361,12 @@ const StudentDashboard = () => {
               </div>
             </div>
 
-            {/* PROGRESS CHART (Tuzatilgan qism: aniq style berildi) */}
+            {/* PROGRESS CHART (TUZATILGAN) */}
             <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm">
                <h3 className="text-sm font-black text-slate-800 mb-4 px-2">Progress</h3>
-               
-               {/* MUHIM TUZATISH: style={{ height: 250 }} */}
-               <div style={{ width: '100%', height: 250 }}>
-                  <ResponsiveContainer width="100%" height="100%">
+               {/* minWidth={0} qo'shildi va debounce */}
+               <div className="w-full h-[250px] min-w-0">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
                     <AreaChart data={[...grades].reverse()}>
                       <defs><linearGradient id="scoreColor" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4F46E5" stopOpacity={0.2}/><stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/></linearGradient></defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />

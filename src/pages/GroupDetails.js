@@ -10,6 +10,7 @@ import {
   doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc
 } from 'firebase/firestore';
 
+// Recharts importi turibdi, lekin endi ishlatilmaydi (xohlasangiz olib tashlashingiz mumkin)
 import { 
   AreaChart, Area, XAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer 
@@ -50,7 +51,7 @@ const GroupDetails = () => {
   const [selectedLesson, setSelectedLesson] = useState(null); 
   const [gradeScores, setGradeScores] = useState({}); 
   const [existingGradeDocs, setExistingGradeDocs] = useState({});
-  const [studentGrades, setStudentGrades] = useState([]); // Grafik va Ro'yxat uchun
+  const [studentGrades, setStudentGrades] = useState([]); 
   const [loading, setLoading] = useState(false);
 
   const fetchData = async () => {
@@ -357,54 +358,76 @@ const GroupDetails = () => {
         </div>
       )}
 
-      {/* GRADE MODAL (FIXED HEIGHT CHART & ACCORDION HISTORY) */}
+      {/* GRADE MODAL (YANGI - GRAFIKSIZ) */}
       {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
           <div className="absolute inset-0 bg-white/60 backdrop-blur-xl animate-in fade-in duration-500" onClick={() => setIsGradeModalOpen(false)}></div>
           <div className="bg-white/90 border border-white shadow-2xl rounded-[3rem] w-full max-w-4xl relative z-10 overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
             
-            {/* CHAP TOMON: GRAFIK */}
-            <div className="md:w-1/2 p-8 bg-indigo-600 text-white relative overflow-hidden flex flex-col">
-               <div className="relative z-10 flex-1 flex flex-col">
-                 <div className="w-20 h-20 rounded-full border-4 border-white/20 mb-4 overflow-hidden bg-white/10">
+            {/* CHAP TOMON: FAQAT PROFIL (Grafik olib tashlandi) */}
+            <div className="md:w-1/3 p-8 bg-indigo-600 text-white relative flex flex-col items-center justify-center text-center">
+               <div className="relative z-10">
+                 <div className="w-32 h-32 mx-auto rounded-full border-4 border-white/20 mb-6 overflow-hidden bg-white/10 shadow-lg">
                     <img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt="" />
                  </div>
-                 <h3 className="text-3xl font-black mb-1">{selectedStudent.name}</h3>
-                 <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-6">Performance Report</p>
-                 
-                 {/* CHART FIX: Aniq balandlik berildi */}
-                 <div className="w-full h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={[...studentGrades].reverse()}>
-                         <defs><linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#fff" stopOpacity={0.3}/><stop offset="95%" stopColor="#fff" stopOpacity={0}/></linearGradient></defs>
-                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
-                         <XAxis dataKey="dateStr" stroke="rgba(255,255,255,0.5)" fontSize={10} axisLine={false} tickLine={false} />
-                         <Tooltip contentStyle={{background:'#fff', borderRadius:'12px', color:'#1e293b', border:'none'}} />
-                         <Area type="monotone" dataKey="score" stroke="#fff" strokeWidth={3} fill="url(#colorScore)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                 </div>
+                 <h3 className="text-2xl font-black mb-2">{selectedStudent.name}</h3>
+                 <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest">Student Profile</p>
+               </div>
+               
+               <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+                  <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle,white,transparent)]"></div>
                </div>
             </div>
 
-            {/* O'NG TOMON: BAHOLASH VA TARIX (GARMOSHKA) */}
-            <div className="md:w-1/2 p-8 overflow-y-auto flex flex-col">
+            {/* O'NG TOMON: BAHOLASH VA TARIX */}
+            <div className="md:w-2/3 p-8 overflow-y-auto flex flex-col bg-white">
               <div className="flex justify-between items-center mb-6">
                 <h4 className="text-lg font-black text-slate-800 uppercase italic">Evaluation</h4>
-                <button onClick={() => setIsGradeModalOpen(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 tap-active"><X size={20}/></button>
+                <button onClick={() => setIsGradeModalOpen(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all tap-active"><X size={20}/></button>
               </div>
 
               {/* 1. Baholash Formasi */}
-              <form onSubmit={handleSaveGrade} className="space-y-4 mb-8">
-                <div className="space-y-2"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lesson</label><select required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-sm" value={selectedLesson?.id || ''} onChange={(e) => handleLessonSelect(e.target.value)}><option value="">-- Choose lesson --</option>{lessons.map((l) => <option key={l.id} value={l.id}>{l.date} - {l.topic}</option>)}</select></div>
-                {selectedLesson && (<div className="space-y-2">{selectedLesson.tasks?.map((task, idx) => { const taskName = typeof task === 'object' ? task.text : task; const hasExistingGrade = existingGradeDocs[taskName] !== undefined; return (<div key={idx} className={`flex items-center justify-between p-3 border rounded-xl ${hasExistingGrade ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-slate-200'}`}><span className={`font-bold text-xs ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-700'}`}>{taskName}</span><input type="number" min="0" max="100" placeholder="-" className={`w-16 text-center font-black text-indigo-600 py-2 rounded-lg outline-none text-sm ${hasExistingGrade ? 'bg-white' : 'bg-slate-50'}`} value={gradeScores[taskName] || ''} onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} /></div>); })}</div>)}
-                <button type="submit" disabled={loading || !selectedLesson} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black shadow-lg uppercase text-[10px] tracking-widest">{loading ? "Saving..." : "Save Scores"}</button>
+              <form onSubmit={handleSaveGrade} className="space-y-4 mb-8 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lesson</label>
+                    <select required className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500" value={selectedLesson?.id || ''} onChange={(e) => handleLessonSelect(e.target.value)}>
+                        <option value="">-- Darsni tanlang --</option>
+                        {lessons.map((l) => <option key={l.id} value={l.id}>{l.date} - {l.topic}</option>)}
+                    </select>
+                </div>
+                
+                {selectedLesson && (
+                    <div className="space-y-3 pt-2">
+                        {selectedLesson.tasks?.map((task, idx) => { 
+                            const taskName = typeof task === 'object' ? task.text : task; 
+                            const hasExistingGrade = existingGradeDocs[taskName] !== undefined; 
+                            return (
+                                <div key={idx} className={`flex items-center justify-between p-3 border rounded-xl transition-all ${hasExistingGrade ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200'}`}>
+                                    <span className={`font-bold text-xs ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-700'}`}>{taskName}</span>
+                                    <input 
+                                        type="number" 
+                                        min="0" 
+                                        max="100" 
+                                        placeholder="-" 
+                                        className={`w-20 text-center font-black text-indigo-600 py-2 rounded-lg outline-none text-sm border focus:ring-2 focus:ring-indigo-500 ${hasExistingGrade ? 'bg-white border-indigo-100' : 'bg-slate-50 border-slate-200'}`} 
+                                        value={gradeScores[taskName] || ''} 
+                                        onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} 
+                                    />
+                                </div>
+                            ); 
+                        })}
+                    </div>
+                )}
+                
+                <button type="submit" disabled={loading || !selectedLesson} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all uppercase text-[10px] tracking-widest mt-2">
+                    {loading ? "Saqlanmoqda..." : "Baholarni Saqlash"}
+                </button>
               </form>
 
               {/* 2. Baholar Tarixi (OYLIK GARMOSHKA) */}
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Grade History</h4>
-              <div className="space-y-2">
-                {Object.keys(groupedGrades).length === 0 && <p className="text-slate-400 text-xs italic">Hozircha baholar yo'q.</p>}
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Grade History</h4>
+              <div className="space-y-2 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                {Object.keys(groupedGrades).length === 0 && <p className="text-slate-400 text-xs italic text-center py-4">Hozircha baholar yo'q.</p>}
                 
                 {Object.keys(groupedGrades).map((month, index) => {
                    const mGrades = groupedGrades[month];
@@ -412,25 +435,25 @@ const GroupDetails = () => {
 
                    return (
                      <div key={month} className="border border-slate-100 rounded-xl overflow-hidden">
-                        <div onClick={() => toggleGradeMonth(month)} className="p-3 bg-slate-50 flex justify-between items-center cursor-pointer">
+                        <div onClick={() => toggleGradeMonth(month)} className="p-3 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors">
                            <span className="text-[10px] font-black uppercase text-slate-600">{month}</span>
                            <div className="flex items-center gap-2">
-                              <span className="bg-white px-2 py-0.5 rounded text-[9px] font-bold text-slate-400">{mGrades.length}</span>
-                              {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                              <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[9px] font-bold text-slate-400">{mGrades.length}</span>
+                              {isExp ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
                            </div>
                         </div>
                         {isExp && (
                            <div className="bg-white divide-y divide-slate-50">
                               {mGrades.map((g) => (
-                                <div key={g.id} className="p-3 flex justify-between items-center">
+                                <div key={g.id} className="p-3 flex justify-between items-center hover:bg-slate-50/30">
                                    <div>
-                                      <p className="text-[10px] font-black text-slate-700 uppercase">{g.comment}</p>
+                                      <p className="text-[10px] font-black text-slate-700 uppercase mb-0.5">{g.comment}</p>
                                       <div className="flex gap-2">
-                                         <span className="text-[9px] text-slate-400">{g.dateStr}</span>
-                                         <span className="text-[9px] text-indigo-400 font-bold uppercase">{g.taskType}</span>
+                                         <span className="text-[9px] text-slate-400 font-medium">{g.dateStr}</span>
+                                         <span className="text-[9px] text-indigo-400 font-bold uppercase bg-indigo-50 px-1.5 rounded">{g.taskType}</span>
                                       </div>
                                    </div>
-                                   <div className={`text-sm font-black ${g.score >= 80 ? 'text-emerald-500' : 'text-indigo-600'}`}>{g.score}</div>
+                                   <div className={`text-sm font-black ${g.score >= 80 ? 'text-emerald-500' : g.score <= 50 ? 'text-red-500' : 'text-indigo-600'}`}>{g.score}</div>
                                 </div>
                               ))}
                            </div>
