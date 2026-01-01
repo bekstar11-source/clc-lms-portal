@@ -359,109 +359,152 @@ const GroupDetails = () => {
       )}
 
       {/* GRADE MODAL (YANGI - GRAFIKSIZ) */}
-      {isGradeModalOpen && selectedStudent && (
+     {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
           <div className="absolute inset-0 bg-white/60 backdrop-blur-xl animate-in fade-in duration-500" onClick={() => setIsGradeModalOpen(false)}></div>
-          <div className="bg-white/90 border border-white shadow-2xl rounded-[3rem] w-full max-w-4xl relative z-10 overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
+          <div className="bg-white/95 border border-white shadow-2xl rounded-[2.5rem] w-full max-w-lg relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
             
-            {/* CHAP TOMON: FAQAT PROFIL (Grafik olib tashlandi) */}
-            <div className="md:w-1/3 p-8 bg-indigo-600 text-white relative flex flex-col items-center justify-center text-center">
-               <div className="relative z-10">
-               <div className="w-20 h-20 mx-auto rounded-full border-4 border-white/20 mb-4 overflow-hidden bg-white/10 shadow-lg">
-   <img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt="" />
-</div>
-                 <h3 className="text-2xl font-black mb-2">{selectedStudent.name}</h3>
-                 <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest">Student Profile</p>
+            {/* 1. PROFIL QISMI (Indigo - Gorizontal panel) */}
+            <div className="p-4 bg-indigo-600 text-white flex items-center justify-between relative overflow-hidden shrink-0">
+               <div className="flex items-center gap-3 relative z-10">
+                  <div className="w-12 h-12 rounded-full border-2 border-white/20 overflow-hidden bg-white/10">
+                     <img 
+                        src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} 
+                        className="w-full h-full object-cover" 
+                        alt="student avatar" 
+                     />
+                  </div>
+                  <div>
+                     <h3 className="text-base font-black leading-tight uppercase italic">{selectedStudent.name}</h3>
+                     <p className="text-indigo-200 text-[8px] font-bold uppercase tracking-[0.2em]">Student Profile</p>
+                  </div>
                </div>
                
-               <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-                  <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle,white,transparent)]"></div>
-               </div>
+               {/* Yopish tugmasi */}
+               <button 
+                  onClick={() => setIsGradeModalOpen(false)} 
+                  className="relative z-10 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+               >
+                  <X size={18} className="text-white"/>
+               </button>
+
+               {/* Dekorativ fon bezagi */}
+               <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
             </div>
 
-            {/* O'NG TOMON: BAHOLASH VA TARIX */}
-            <div className="md:w-2/3 p-8 overflow-y-auto flex flex-col bg-white">
-              <div className="flex justify-between items-center mb-6">
-                <h4 className="text-lg font-black text-slate-800 uppercase italic">Evaluation</h4>
-                <button onClick={() => setIsGradeModalOpen(false)} className="p-2 bg-slate-50 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all tap-active"><X size={20}/></button>
-              </div>
-
-              {/* 1. Baholash Formasi */}
-              <form onSubmit={handleSaveGrade} className="space-y-4 mb-8 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
-                <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lesson</label>
-                    <select required className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500" value={selectedLesson?.id || ''} onChange={(e) => handleLessonSelect(e.target.value)}>
-                        <option value="">-- Darsni tanlang --</option>
-                        {lessons.map((l) => <option key={l.id} value={l.id}>{l.date} - {l.topic}</option>)}
-                    </select>
+            {/* ASOSIY SCROLL MAYDONI */}
+            <div className="p-5 overflow-y-auto flex-1 custom-scrollbar space-y-6">
+              
+              {/* 2. BAHOLASH FORMASI */}
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                   <div className="w-1 h-4 bg-indigo-600 rounded-full"></div>
+                   <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest italic">Evaluation</h4>
                 </div>
-                
-                {selectedLesson && (
-                    <div className="space-y-3 pt-2">
-                        {selectedLesson.tasks?.map((task, idx) => { 
-                            const taskName = typeof task === 'object' ? task.text : task; 
-                            const hasExistingGrade = existingGradeDocs[taskName] !== undefined; 
-                            return (
-                                <div key={idx} className={`flex items-center justify-between p-3 border rounded-xl transition-all ${hasExistingGrade ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-200'}`}>
-                                    <span className={`font-bold text-xs ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-700'}`}>{taskName}</span>
-                                    <input 
-                                        type="number" 
-                                        min="0" 
-                                        max="100" 
-                                        placeholder="-" 
-                                        className={`w-20 text-center font-black text-indigo-600 py-2 rounded-lg outline-none text-sm border focus:ring-2 focus:ring-indigo-500 ${hasExistingGrade ? 'bg-white border-indigo-100' : 'bg-slate-50 border-slate-200'}`} 
-                                        value={gradeScores[taskName] || ''} 
-                                        onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} 
-                                    />
-                                </div>
-                            ); 
-                        })}
-                    </div>
-                )}
-                
-                <button type="submit" disabled={loading || !selectedLesson} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all uppercase text-[10px] tracking-widest mt-2">
-                    {loading ? "Saqlanmoqda..." : "Baholarni Saqlash"}
-                </button>
-              </form>
 
-              {/* 2. Baholar Tarixi (OYLIK GARMOSHKA) */}
-              <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">Grade History</h4>
-              <div className="space-y-2 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-                {Object.keys(groupedGrades).length === 0 && <p className="text-slate-400 text-xs italic text-center py-4">Hozircha baholar yo'q.</p>}
-                
-                {Object.keys(groupedGrades).map((month, index) => {
-                   const mGrades = groupedGrades[month];
-                   const isExp = expandedGradeMonths[month] || index === 0;
-
-                   return (
-                     <div key={month} className="border border-slate-100 rounded-xl overflow-hidden">
-                        <div onClick={() => toggleGradeMonth(month)} className="p-3 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors">
-                           <span className="text-[10px] font-black uppercase text-slate-600">{month}</span>
-                           <div className="flex items-center gap-2">
-                              <span className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[9px] font-bold text-slate-400">{mGrades.length}</span>
-                              {isExp ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
-                           </div>
+                <form onSubmit={handleSaveGrade} className="space-y-4">
+                  <div className="space-y-1">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Lesson Selection</label>
+                      <div className="relative">
+                        <select 
+                          required 
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-slate-700 text-sm focus:ring-2 focus:ring-indigo-500 appearance-none" 
+                          value={selectedLesson?.id || ''} 
+                          onChange={(e) => handleLessonSelect(e.target.value)}
+                        >
+                            <option value="">-- Darsni tanlang --</option>
+                            {lessons.map((l) => <option key={l.id} value={l.id}>{l.date} - {l.topic}</option>)}
+                        </select>
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                           <ChevronDown size={16} />
                         </div>
-                        {isExp && (
-                           <div className="bg-white divide-y divide-slate-50">
-                              {mGrades.map((g) => (
-                                <div key={g.id} className="p-3 flex justify-between items-center hover:bg-slate-50/30">
-                                   <div>
-                                      <p className="text-[10px] font-black text-slate-700 uppercase mb-0.5">{g.comment}</p>
-                                      <div className="flex gap-2">
-                                         <span className="text-[9px] text-slate-400 font-medium">{g.dateStr}</span>
-                                         <span className="text-[9px] text-indigo-400 font-bold uppercase bg-indigo-50 px-1.5 rounded">{g.taskType}</span>
-                                      </div>
-                                   </div>
-                                   <div className={`text-sm font-black ${g.score >= 80 ? 'text-emerald-500' : g.score <= 50 ? 'text-red-500' : 'text-indigo-600'}`}>{g.score}</div>
-                                </div>
-                              ))}
-                           </div>
-                        )}
-                     </div>
-                   );
-                })}
-              </div>
+                      </div>
+                  </div>
+                  
+                  {selectedLesson && (
+                      <div className="grid grid-cols-1 gap-2 animate-in slide-in-from-top-2 duration-300">
+                          {selectedLesson.tasks?.map((task, idx) => { 
+                              const taskName = typeof task === 'object' ? task.text : task; 
+                              const hasExistingGrade = existingGradeDocs[taskName] !== undefined; 
+                              return (
+                                  <div key={idx} className={`flex items-center justify-between p-3 border rounded-2xl transition-all ${hasExistingGrade ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100'}`}>
+                                      <span className={`font-bold text-[11px] ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-600'}`}>{taskName}</span>
+                                      <input 
+                                          type="number" 
+                                          min="0" 
+                                          max="100" 
+                                          placeholder="-" 
+                                          className={`w-16 text-center font-black text-indigo-600 py-1.5 rounded-xl outline-none text-xs border focus:ring-2 focus:ring-indigo-500 ${hasExistingGrade ? 'bg-white border-indigo-100' : 'bg-slate-50 border-slate-200'}`} 
+                                          value={gradeScores[taskName] || ''} 
+                                          onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} 
+                                      />
+                                  </div>
+                              ); 
+                          })}
+                      </div>
+                  )}
+                  
+                  <button 
+                    type="submit" 
+                    disabled={loading || !selectedLesson} 
+                    className="w-full py-3.5 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100 active:scale-95 transition-all uppercase text-[10px] tracking-widest disabled:opacity-50"
+                  >
+                      {loading ? "Saqlanmoqda..." : "Baholarni Saqlash"}
+                  </button>
+                </form>
+              </section>
+
+              {/* 3. GRADE HISTORY (Baholash formasi bilan yaqinlashtirildi) */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                   <div className="w-1 h-4 bg-indigo-600 rounded-full"></div>
+                   <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest italic">Grade History</h4>
+                </div>
+
+                <div className="space-y-2">
+                  {Object.keys(groupedGrades).length === 0 && (
+                    <p className="text-slate-400 text-[10px] italic text-center py-4 bg-slate-50 rounded-2xl">Hozircha baholar yo'q.</p>
+                  )}
+                  
+                  {Object.keys(groupedGrades).map((month, index) => {
+                     const mGrades = groupedGrades[month];
+                     const isExp = expandedGradeMonths[month] || index === 0;
+
+                     return (
+                       <div key={month} className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm bg-white">
+                          <div 
+                            onClick={() => toggleGradeMonth(month)} 
+                            className="p-3 bg-slate-50/50 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors"
+                          >
+                             <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">{month}</span>
+                             <div className="flex items-center gap-2">
+                                <span className="bg-white px-2 py-0.5 rounded-lg text-[8px] font-bold text-slate-400 border border-slate-100">{mGrades.length}</span>
+                                {isExp ? <ChevronUp size={12} className="text-slate-400"/> : <ChevronDown size={12} className="text-slate-400"/>}
+                             </div>
+                          </div>
+                          {isExp && (
+                             <div className="divide-y divide-slate-50 animate-in fade-in duration-300">
+                                {mGrades.map((g) => (
+                                  <div key={g.id} className="p-3 flex justify-between items-center hover:bg-slate-50/30 transition-colors">
+                                     <div className="max-w-[70%]">
+                                        <p className="text-[10px] font-black text-slate-700 uppercase leading-tight mb-1 truncate">{g.comment}</p>
+                                        <div className="flex gap-2">
+                                           <span className="text-[8px] text-slate-400 font-bold">{g.dateStr}</span>
+                                           <span className="text-[8px] text-indigo-400 font-black uppercase tracking-tighter bg-indigo-50 px-1 rounded">{g.taskType}</span>
+                                        </div>
+                                     </div>
+                                     <div className={`text-sm font-black ${g.score >= 80 ? 'text-emerald-500' : g.score <= 40 ? 'text-red-500' : 'text-indigo-600'}`}>
+                                        {g.score}
+                                     </div>
+                                  </div>
+                                ))}
+                             </div>
+                          )}
+                       </div>
+                     );
+                  })}
+                </div>
+              </section>
             </div>
           </div>
         </div>
