@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { 
   LogOut, Award, Loader2, Settings,
   Trophy, AlertCircle, ArrowRight, BookOpen,
-  ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw
+  ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw,
+  LayoutDashboard, ClipboardList, Star, Medal, Zap,
+  Gamepad2 
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
@@ -12,6 +14,9 @@ import {
   XAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 
+// YANGI O'YIN KOMPONENTINI IMPORT QILISH (FILE YO'LIGA E'TIBOR BERING!)
+import WordGame from './WordGame';
+
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -19,7 +24,10 @@ const StudentDashboard = () => {
   const [groupName, setGroupName] = useState('');
   const [grades, setGrades] = useState([]);
   const [lessons, setLessons] = useState([]);
+  
   const [topStudents, setTopStudents] = useState([]);
+  const [studentRank, setStudentRank] = useState(0);
+  
   const [activeTab, setActiveTab] = useState('dashboard'); 
   const [expandedMonths, setExpandedMonths] = useState({});
 
@@ -28,6 +36,8 @@ const StudentDashboard = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef(null); 
+  
+  const hasNewHomework = notifications.some(n => n.type === 'lesson');
 
   useEffect(() => {
     const fetchStudentData = async () => {
@@ -66,13 +76,17 @@ const StudentDashboard = () => {
 
           const leaderData = allStuds.map(s => {
             const sGrades = allGrades.filter(g => g.studentId === s.id);
-            const avg = sGrades.length > 0 ? sGrades.reduce((a, b) => a + b.score, 0) / sGrades.length : 0;
-            return { name: s.name, avg: Math.round(avg), avatarSeed: s.avatarSeed };
-          }).sort((a, b) => b.avg - a.avg).slice(0, 3);
+            const validGrades = sGrades.map(g => Number(g.score)).filter(score => !isNaN(score) && score <= 100);
+            const avg = validGrades.length > 0 ? validGrades.reduce((a, b) => a + b, 0) / validGrades.length : 0;
+            return { id: s.id, name: s.name, avg: Math.round(avg), avatarSeed: s.avatarSeed };
+          }).sort((a, b) => b.avg - a.avg);
           
-          setTopStudents(leaderData);
+          setTopStudents(leaderData.slice(0, 3));
+          
+          const myRankIndex = leaderData.findIndex(s => s.id === studentData.id);
+          setStudentRank(myRankIndex + 1);
 
-          const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "desc"));
+          const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "asc"));
           const lessonsSnapshot = await getDocs(lessonsQuery);
           
           const fetchedLessons = lessonsSnapshot.docs.map(doc => {
@@ -160,6 +174,15 @@ const StudentDashboard = () => {
     }
     setIsNotifOpen(!isNotifOpen);
   };
+  
+  const handleNotificationClick = (notification) => {
+    if (notification.type === 'grade') {
+        setActiveTab('grades');
+    } else if (notification.type === 'lesson') {
+        setActiveTab('schedule');
+    }
+    setIsNotifOpen(false); 
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -177,6 +200,10 @@ const StudentDashboard = () => {
 
   const handleLogout = async () => {
     if(window.confirm("Chiqmoqchimisiz?")) { await signOut(auth); navigate('/'); }
+  };
+  
+  const handleRefresh = () => {
+    window.location.reload();
   };
 
   const getAvatarUrl = (seed) => {
@@ -201,6 +228,15 @@ const StudentDashboard = () => {
   const totalDebts = lowGrades.length + missingAssignments.length;
   const averageScore = grades.length > 0 ? Math.round(grades.reduce((acc, curr) => acc + curr.score, 0) / grades.length) : 0;
 
+  const getMotivationMessage = (score) => {
+    if (score >= 90) return { text: "DIQQAT: AJOYIB NATIJA! O'SISHDA DAVOM ETING!", color: "text-emerald-300", iconColor: "text-emerald-400" };
+    if (score >= 80) return { text: "YAXSHI KETYAPSIZ! REYTING CHO'QQISI YAQIN!", color: "text-indigo-200", iconColor: "text-yellow-400" };
+    if (score >= 60) return { text: "OGOHLANTIRISH: NATIJANI YAXSHILASH KERAK.", color: "text-yellow-300", iconColor: "text-yellow-500" };
+    return { text: "DIQQAT! O'ZLASHTIRISH KO'RSATKICHI PASAYMOQDA!", color: "text-red-300", iconColor: "text-red-500" };
+  };
+  
+  const motivation = getMotivationMessage(averageScore);
+
   const groupLessonsByMonth = () => {
     const groups = {};
     lessons.forEach(lesson => {
@@ -222,8 +258,12 @@ const StudentDashboard = () => {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
 
+  const radius = 38;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (averageScore / 100) * circumference;
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans pb-24">
+    <div className="min-h-screen bg-slate-50 font-sans pb-28 md:pb-12">
       
       {/* Navbar */}
       <nav className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 py-3 flex justify-between items-center shadow-sm">
@@ -235,7 +275,6 @@ const StudentDashboard = () => {
                className="w-full h-full object-cover"
              />
           </div>
-          
           <div>
             <span className="font-black text-slate-800 text-sm block leading-none">
                 {student?.name ? student.name.split(' ')[0] : 'Student'}
@@ -245,14 +284,14 @@ const StudentDashboard = () => {
         </div>
         
         <div className="flex gap-2 items-center" ref={notifRef}>
+           <button onClick={handleRefresh} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl active:bg-slate-200 transition-colors">
+              <RefreshCcw size={20} />
+           </button>
           <div className="relative">
             <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-slate-50'}`}>
               <Bell size={20} />
-              {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-              )}
+              {unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
             </button>
-
             {isNotifOpen && (
               <div className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 animate-in fade-in slide-in-from-top-2 z-[60]">
                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-50">
@@ -260,15 +299,14 @@ const StudentDashboard = () => {
                     <button onClick={() => {setNotifications([]); setUnreadCount(0); localStorage.setItem('lastNotificationCheck', new Date().toISOString());}} className="text-[9px] font-bold text-slate-400 hover:text-indigo-600 uppercase">Tozalash</button>
                  </div>
                  <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                    {notifications.length === 0 ? (
-                      <div className="p-6 text-center text-slate-400 text-xs italic flex flex-col items-center">
-                        <Bell size={24} className="mb-2 opacity-20"/>
-                        Yangiliklar yo'q
-                      </div>
-                    ) : (
+                    {notifications.length === 0 ? <div className="p-6 text-center text-slate-400 text-xs italic flex flex-col items-center"><Bell size={24} className="mb-2 opacity-20"/>Yangiliklar yo'q</div> : 
                       <div className="space-y-1 mt-1">
                         {notifications.map(n => (
-                          <div key={n.id} className={`p-3 rounded-xl flex items-start gap-3 ${n.type === 'grade' && n.score <= 20 ? 'bg-red-50' : 'bg-slate-50'}`}>
+                          <div 
+                            key={n.id} 
+                            onClick={() => handleNotificationClick(n)}
+                            className={`p-3 rounded-xl flex items-start gap-3 cursor-pointer hover:opacity-80 transition-opacity ${n.type === 'grade' && n.score <= 20 ? 'bg-red-50' : 'bg-slate-50'}`}
+                          >
                              <div className={`mt-1 w-2 h-2 rounded-full ${n.type === 'grade' ? (n.score <= 20 ? 'bg-red-500' : 'bg-emerald-500') : 'bg-indigo-500'}`}></div>
                              <div>
                                <h4 className={`text-xs font-black uppercase ${n.type === 'grade' && n.score <= 20 ? 'text-red-600' : 'text-slate-700'}`}>{n.title}</h4>
@@ -278,22 +316,28 @@ const StudentDashboard = () => {
                           </div>
                         ))}
                       </div>
-                    )}
+                    }
                  </div>
               </div>
             )}
           </div>
-
           <button onClick={() => navigate('/settings')} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl"><Settings size={20} /></button>
           <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-xl"><LogOut size={20} /></button>
         </div>
       </nav>
 
-      <div className="px-4 pt-4 pb-2 sticky top-[60px] z-40 bg-slate-50">
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-           {['dashboard', 'schedule', 'grades'].map(t => (
-             <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === t ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>
-               {t === 'dashboard' ? 'Asosiy' : t === 'schedule' ? 'Jadval' : 'Baholar'}
+      {/* --- MENU TABS (Kompyuter) --- */}
+      <div className="hidden md:flex px-4 pt-4 pb-2 sticky top-[60px] z-40 bg-slate-50">
+        <div className="w-full flex bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+           {['dashboard', 'schedule', 'grades', 'wordgame'].map(t => (
+             <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all relative ${activeTab === t ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>
+               {t === 'dashboard' ? 'Asosiy' : t === 'schedule' ? 'Uyga vazifalar' : t === 'grades' ? 'Baholar' : 'O\'yin'}
+               {t === 'schedule' && hasNewHomework && (
+                   <span className="absolute top-2 right-4 w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-sm shadow-red-500/50"></span>
+               )}
+               {t === 'wordgame' && (
+                 <span className="absolute top-1.5 right-3 opacity-50"><Gamepad2 size={12}/></span>
+               )}
              </button>
            ))}
         </div>
@@ -304,8 +348,6 @@ const StudentDashboard = () => {
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            
-            {/* ALERT */}
             {totalDebts > 0 && (
               <div className="bg-red-50 border-2 border-red-100 p-4 rounded-3xl flex items-center gap-4 shadow-xl shadow-red-100/50 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-20 h-20 bg-red-200/20 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
@@ -323,13 +365,39 @@ const StudentDashboard = () => {
               </div>
             )}
 
-            <div className="bg-gradient-to-br from-indigo-600 to-violet-800 rounded-[2rem] p-6 text-white relative overflow-hidden shadow-xl shadow-indigo-200">
-               <div className="relative z-10">
-                <span className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-4 inline-block">Student Portal</span>
-                <h1 className="text-2xl font-black mb-2">Salom, {student?.name ? student.name.split(' ')[0] : 'O\'quvchi'}!</h1>
-                <p className="text-indigo-100 text-xs font-medium opacity-80 mb-6">Sizning hozirgi o'rtacha ko'rsatkichingiz <b>{averageScore}%</b></p>
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-800 rounded-[2rem] p-4 sm:p-5 text-white relative overflow-hidden shadow-2xl shadow-indigo-200/50 flex flex-row items-center gap-4">
+               <div className="relative z-10 shrink-0 ml-2">
+                   <div className="relative w-24 h-24 flex items-center justify-center">
+                       <svg className="w-full h-full transform -rotate-90">
+                           <circle cx="50%" cy="50%" r={radius} stroke="currentColor" strokeWidth="8" fill="transparent" className="text-indigo-900/30" />
+                           <circle cx="50%" cy="50%" r={radius} stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" className="text-white transition-all duration-1000 ease-out" />
+                       </svg>
+                       <div className="absolute inset-0 flex flex-col items-center justify-center pb-1">
+                           <Zap size={20} className={`${motivation.iconColor} animate-pulse fill-current mb-0.5`} />
+                           <div className="flex items-start leading-none">
+                               <span className="text-2xl font-black">{averageScore}</span>
+                               <span className="text-[10px] font-bold mt-0.5">%</span>
+                           </div>
+                       </div>
+                   </div>
                </div>
-               <Award className="absolute -right-4 -bottom-4 text-white/10 w-32 h-32" />
+               <div className="relative z-10 flex-1 text-left">
+                  <div className="flex items-center gap-2 opacity-80 mb-1">
+                      <Star size={10} className="text-yellow-300 fill-yellow-300" />
+                      <span className="text-[9px] font-black uppercase tracking-widest">Student Portal</span>
+                  </div>
+                  <h1 className="text-lg font-bold leading-tight flex items-center gap-2">
+                    Salom, {student?.name ? student.name.split(' ')[0] : 'O\'quvchi'}!
+                    <span className="bg-white/20 px-1.5 py-0.5 rounded-md text-[10px] font-black flex items-center gap-1">
+                      <Medal size={10} className="text-yellow-300" /> #{studentRank > 0 ? studentRank : '-'}
+                    </span>
+                  </h1>
+                  <div className={`mt-2 ${motivation.color} animate-pulse flex items-center gap-2`}>
+                     <AlertCircle size={18} className="shrink-0" />
+                     <p className="text-sm sm:text-base font-black uppercase leading-tight tracking-tight">{motivation.text}</p>
+                  </div>
+               </div>
+               <div className="absolute -top-10 -right-10 w-64 h-64 bg-white/5 rounded-full blur-3xl"></div>
             </div>
 
             <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
@@ -343,11 +411,7 @@ const StudentDashboard = () => {
                     <div className="flex items-center gap-3">
                       <div className="relative">
                         <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 overflow-hidden">
-                           <img 
-                             src={getAvatarUrl(s.avatarSeed || s.name)} 
-                             alt={s.name} 
-                             className="w-full h-full object-cover"
-                           />
+                           <img src={getAvatarUrl(s.avatarSeed || s.name)} alt={s.name} className="w-full h-full object-cover"/>
                         </div>
                         <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] border border-white text-white font-black ${i === 0 ? 'bg-amber-400' : i === 1 ? 'bg-slate-400' : 'bg-amber-700'}`}>
                           {i+1}
@@ -361,10 +425,8 @@ const StudentDashboard = () => {
               </div>
             </div>
 
-            {/* PROGRESS CHART (TUZATILGAN) */}
             <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm">
                <h3 className="text-sm font-black text-slate-800 mb-4 px-2">Progress</h3>
-               {/* minWidth={0} qo'shildi va debounce */}
                <div className="w-full h-[250px] min-w-0">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
                     <AreaChart data={[...grades].reverse()}>
@@ -380,16 +442,14 @@ const StudentDashboard = () => {
           </div>
         )}
         
-        {/* 2. SCHEDULE TAB */}
+        {/* 2. UYGA VAZIFALAR TAB */}
         {activeTab === 'schedule' && (
           <div className="space-y-6 animate-in fade-in">
-            <h2 className="text-lg font-black text-slate-800 px-2 uppercase italic">Dars Jadvali</h2>
-            
+            <h2 className="text-lg font-black text-slate-800 px-2 uppercase italic">Uyga vazifalar</h2>
             {Object.keys(groupedLessons).map((month, index) => {
               const monthLessons = groupedLessons[month];
               const isExpanded = expandedMonths[month] || index === 0;
               const hasTrouble = hasProblemInMonth(monthLessons);
-
               return (
                 <div key={month} className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                   <div onClick={() => toggleMonth(month)} className={`p-5 flex justify-between items-center cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}>
@@ -405,7 +465,6 @@ const StudentDashboard = () => {
                       {isExpanded ? <ChevronUp className="text-slate-400" size={20}/> : <ChevronDown className="text-slate-400" size={20}/>}
                     </div>
                   </div>
-
                   {isExpanded && (
                     <div className="p-4 space-y-4 border-t border-slate-100 bg-slate-50/30">
                       {monthLessons.map((lesson) => {
@@ -413,7 +472,6 @@ const StudentDashboard = () => {
                         const isMissing = lesson.date < today && !lessonGrade;
                         const isRetake = lessonGrade && lessonGrade.score <= 20;
                         const isProblematic = isMissing || isRetake;
-
                         return (
                           <div key={lesson.id} className={`p-5 rounded-[2rem] border transition-all ${isProblematic ? 'bg-white border-red-200 shadow-md shadow-red-50' : 'bg-white border-slate-100 shadow-sm'}`}>
                             <div className="flex justify-between items-start">
@@ -423,17 +481,17 @@ const StudentDashboard = () => {
                               </div>
                               {isProblematic ? <AlertCircle className="text-red-500 animate-pulse" size={22} /> : <BookOpen className="text-slate-200" size={22} />}
                             </div>
-                            
                             {isProblematic && (
                               <div className="mt-4 pt-4 border-t border-red-100 flex items-center gap-2 text-red-600 font-black text-[9px] uppercase tracking-tighter">
                                 <AlertCircle size={12} /> 
                                 {isMissing ? "Topshirilmagan / Baholanmagan" : `Past Baho: ${lessonGrade.score}% (Retake)`}
                               </div>
                             )}
-
                             <div className="flex flex-wrap gap-2 mt-3">
                               {lesson.tasks?.map((t, idx) => (
-                                <span key={idx} className={`border px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter ${isProblematic ? 'bg-white border-red-100 text-red-400' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>{typeof t === 'object' ? t.text : t}</span>
+                                <span key={idx} className={`border px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter ${isProblematic ? 'bg-white border-red-100 text-red-400' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
+                                  {idx + 1}. {typeof t === 'object' ? t.text : t}
+                                </span>
                               ))}
                             </div>
                           </div>
@@ -475,7 +533,51 @@ const StudentDashboard = () => {
           </div>
         )}
 
+        {/* 4. WORD GAME TAB (COMPONENT SIFATIDA) */}
+       {activeTab === 'wordgame' && (
+     <WordGame student={student} />
+)}
+
       </div>
+      
+      {/* MOBIL FOOTER (Fixed Bottom Nav) */}
+      <div className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 flex justify-around py-2 z-50 pb-safe">
+        <button 
+          onClick={() => setActiveTab('dashboard')} 
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === 'dashboard' ? 'text-indigo-600' : 'text-slate-400'}`}
+        >
+          <LayoutDashboard size={24} strokeWidth={activeTab === 'dashboard' ? 2.5 : 2} />
+          <span className="text-[9px] font-black">Asosiy</span>
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('schedule')} 
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all relative ${activeTab === 'schedule' ? 'text-indigo-600' : 'text-slate-400'}`}
+        >
+          <ClipboardList size={24} strokeWidth={activeTab === 'schedule' ? 2.5 : 2} />
+          <span className="text-[9px] font-black">Vazifalar</span>
+          {hasNewHomework && (
+             <span className="absolute top-2 right-4 w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-sm shadow-red-500/50"></span>
+          )}
+        </button>
+        
+        <button 
+          onClick={() => setActiveTab('grades')} 
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === 'grades' ? 'text-indigo-600' : 'text-slate-400'}`}
+        >
+          <Star size={24} strokeWidth={activeTab === 'grades' ? 2.5 : 2} />
+          <span className="text-[9px] font-black">Baholar</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('wordgame')} 
+          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === 'wordgame' ? 'text-indigo-600' : 'text-slate-400'}`}
+        >
+          <Gamepad2 size={24} strokeWidth={activeTab === 'wordgame' ? 2.5 : 2} />
+          <span className="text-[9px] font-black">O'yin</span>
+        </button>
+      </div>
+
     </div>
   );
 };

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Star, X, Loader2, Edit2, Trash2, 
-  UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar
+  UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar,
+  Trophy, Zap, Crown, List, Percent
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { 
@@ -18,6 +19,9 @@ const GroupDetails = () => {
   const [students, setStudents] = useState([]);
   const [lessons, setLessons] = useState([]); 
   const [allGroups, setAllGroups] = useState([]);
+  
+  // VIEW MODE: List (A-Z) yoki Leaderboard (XP)
+  const [studentViewMode, setStudentViewMode] = useState('list'); 
   
   // Accordion States
   const [expandedMonths, setExpandedMonths] = useState({});
@@ -50,22 +54,47 @@ const GroupDetails = () => {
 
   const fetchData = async () => {
     try {
+      // 1. Guruh ma'lumotlari
       const groupDoc = await getDoc(doc(db, "groups", groupId));
       if (groupDoc.exists()) setGroupName(groupDoc.data().name);
       else navigate('/');
 
+      // 2. Barcha baholarni olish (Average hisoblash uchun)
+      const qGrades = query(collection(db, "grades"), where("groupId", "==", groupId));
+      const snapGrades = await getDocs(qGrades);
+      const allGrades = snapGrades.docs.map(d => d.data());
+
+      // 3. O'quvchilarni olish
       const qS = query(collection(db, "students"), where("groupId", "==", groupId));
       const snapS = await getDocs(qS);
       
-      // --- O'ZGARISH 1: Alifbo tartibida saralash ---
-      const studentsList = snapS.docs.map(d => ({ id: d.id, ...d.data() }));
+      const studentsList = snapS.docs.map(d => {
+        const sData = d.data();
+        
+        // --- AVERAGE GRADE CALCULATION ---
+        const studentGrades = allGrades.filter(g => g.studentId === d.id);
+        const totalScore = studentGrades.reduce((acc, curr) => acc + (curr.score || 0), 0);
+        const averageScore = studentGrades.length > 0 
+            ? Math.round(totalScore / studentGrades.length) 
+            : 0;
+
+        return { 
+          id: d.id, 
+          ...sData,
+          gameXp: sData.gameXp || 0,
+          averageScore: averageScore // Yangi maydon
+        };
+      });
+      
       studentsList.sort((a, b) => a.name.localeCompare(b.name)); 
       setStudents(studentsList);
 
+      // 4. Darslar
       const qL = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
       const snapL = await getDocs(qL);
       setLessons(snapL.docs.map(d => ({ id: d.id, ...d.data() })));
 
+      // 5. Boshqa guruhlar (Move uchun)
       const user = auth.currentUser;
       if (user) {
         const qG = query(collection(db, "groups"), where("teacherId", "==", user.uid));
@@ -77,16 +106,22 @@ const GroupDetails = () => {
 
   useEffect(() => { fetchData(); }, [groupId]);
 
+  // DISPLAYED STUDENTS (Filter/Sort logic)
+  const getDisplayedStudents = () => {
+    let list = [...students];
+    if (studentViewMode === 'leaderboard') {
+      return list.sort((a, b) => b.gameXp - a.gameXp);
+    }
+    return list;
+  };
+
+  const displayedStudents = getDisplayedStudents();
+
   // AVATAR URL GENERATOR
   const getAvatarUrl = (seed) => {
     const safeSeed = seed || "default";
-    if (safeSeed.startsWith('bot_')) {
-       const cleanSeed = safeSeed.replace('bot_', '');
-       return `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
-    } else {
-       const encodedSeed = encodeURIComponent(safeSeed);
-       return `https://api.dicebear.com/7.x/notionists/svg?seed=${encodedSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
-    }
+    const cleanSeed = safeSeed.replace('bot_', '');
+    return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
   };
 
   // --- HELPER FUNCTIONS ---
@@ -129,7 +164,7 @@ const GroupDetails = () => {
     const lines = bulkText.split('\n').filter(l => l.includes(','));
     await Promise.all(lines.map(line => {
       const [name, email] = line.split(',').map(s => s.trim());
-      return addDoc(collection(db, "students"), { name, email, groupId, joinedAt: serverTimestamp() });
+      return addDoc(collection(db, "students"), { name, email, groupId, joinedAt: serverTimestamp(), gameXp: 0 });
     }));
     setBulkText(''); setIsAddStudentOpen(false); fetchData(); setLoading(false);
   };
@@ -140,13 +175,11 @@ const GroupDetails = () => {
   };
   const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(); }};
   
-  // --- Formani tozalash va Grade Modalni ochish ---
   const openGradeModal = async (student) => {
     setGradeScores({});
     setSelectedLesson(null);
     setExistingGradeDocs({});
     setStudentGrades([]); 
-
     setSelectedStudent(student); 
     setIsGradeModalOpen(true);
     
@@ -184,6 +217,8 @@ const GroupDetails = () => {
         else { await addDoc(collection(db, "grades"), { studentId: selectedStudent.id, studentName: selectedStudent.name, groupId, score: Number(sc), comment: selectedLesson.topic, taskType: tT, lessonId: selectedLesson.id, date: serverTimestamp() }); }
       }
       setIsGradeModalOpen(false);
+      // Average score yangilanishi uchun qayta yuklaymiz
+      fetchData();
     } catch (er) { alert(er.message); } finally { setLoading(false); }
   };
   
@@ -211,54 +246,103 @@ const GroupDetails = () => {
       <div className="pt-24 px-4 sm:px-6 max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* 1. STUDENTS LIST */}
+          {/* 1. STUDENTS LIST & LEADERBOARD */}
           <div className="lg:col-span-2 space-y-3">
              <div className="flex justify-between items-center px-1">
-                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">All Students ({students.length})</h2>
+                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Students ({students.length})</h2>
                 <button onClick={() => setIsAddStudentOpen(true)} className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><UserPlus size={14}/> Add New</button>
              </div>
              
              <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
                 
-                {/* O'ZGARISH 2: Table Header (faqat kompyuterda) */}
-                <div className="hidden sm:flex bg-slate-50 border-b border-slate-100 p-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                   <div className="flex-1 px-2">Student List (A-Z)</div>
-                   <div className="w-32 text-center">Actions</div>
+                {/* LIST / LEADERBOARD TOGGLE */}
+                <div className="flex border-b border-slate-100">
+                    <button 
+                        onClick={() => setStudentViewMode('list')}
+                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${studentViewMode === 'list' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                    >
+                        <List size={14} /> Ro'yxat (A-Z)
+                    </button>
+                    <button 
+                        onClick={() => setStudentViewMode('leaderboard')}
+                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${studentViewMode === 'leaderboard' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
+                    >
+                        <Trophy size={14} /> Reyting (XP)
+                    </button>
                 </div>
 
                 <div className="divide-y divide-slate-50 font-bold text-slate-700">
-                   {students.map((s) => (
-                     // O'ZGARISH 3: Tugmalar va Ism bir qatorda
-                     <div key={s.id} className="group p-4 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                   {displayedStudents.map((s, index) => {
+                     // Leaderboard uslubi
+                     let rankStyle = "bg-slate-100 text-slate-500";
+                     if (studentViewMode === 'leaderboard') {
+                        if (index === 0) rankStyle = "bg-yellow-100 text-yellow-600 border border-yellow-200";
+                        else if (index === 1) rankStyle = "bg-slate-200 text-slate-600 border border-slate-300";
+                        else if (index === 2) rankStyle = "bg-orange-100 text-orange-600 border border-orange-200";
+                     }
+
+                     // Baho rangi (Average Score)
+                     let scoreColor = "bg-slate-100 text-slate-400";
+                     if (s.averageScore >= 80) scoreColor = "bg-emerald-100 text-emerald-600";
+                     else if (s.averageScore >= 60) scoreColor = "bg-yellow-100 text-yellow-600";
+                     else if (s.averageScore > 0) scoreColor = "bg-rose-100 text-rose-600";
+
+                     return (
+                     <div key={s.id} className={`group p-4 flex items-center justify-between gap-3 transition-colors ${studentViewMode === 'leaderboard' && index < 3 ? 'bg-slate-50/50' : 'hover:bg-slate-50'}`}>
                         
-                        {/* Chap tomon: Avatar va Ism */}
+                        {/* Chap tomon: Avatar, Ism va Statistika */}
                         <div className="flex items-center gap-3 overflow-hidden">
-                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 flex-shrink-0">
+                           {/* Reyting raqami (faqat leaderboard rejimida) */}
+                           {studentViewMode === 'leaderboard' && (
+                               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${rankStyle}`}>
+                                   {index + 1}
+                               </div>
+                           )}
+
+                           <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 flex-shrink-0 relative">
                               <img src={getAvatarUrl(s.avatarSeed || s.name)} alt="" className="w-full h-full object-cover"/>
                            </div>
-                           <span className="text-sm truncate">{s.name}</span>
+                           
+                           <div className="flex flex-col">
+                               <span className="text-sm truncate flex items-center gap-1">
+                                   {s.name}
+                                   {studentViewMode === 'leaderboard' && index === 0 && <Crown size={12} className="text-yellow-500 fill-yellow-500"/>}
+                               </span>
+                               
+                               {/* STATISTIKA: XP va O'rtacha Baho */}
+                               <div className="flex items-center gap-2 mt-0.5">
+                                  {/* XP */}
+                                  <div className="flex items-center gap-1 text-[9px] text-indigo-500 font-black uppercase bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                                     <Zap size={10} className="fill-indigo-500"/>
+                                     {s.gameXp} XP
+                                  </div>
+
+                                  {/* Average Score */}
+                                  <div className={`flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md ${scoreColor}`}>
+                                     <Percent size={10} />
+                                     {s.averageScore}%
+                                  </div>
+                               </div>
+                           </div>
                         </div>
 
-                        {/* O'ng tomon: Tugmalar (Ism yonida) */}
+                        {/* O'ng tomon: Tugmalar */}
                         <div className="flex items-center gap-1 shrink-0">
-                           {/* GRADE Button (Faqat Star) */}
                            <button onClick={() => openGradeModal(s)} className="p-2 text-indigo-400 bg-indigo-50 rounded-lg hover:bg-indigo-600 hover:text-white transition-all">
                               <Star size={18} fill="currentColor" className="opacity-80"/>
                            </button>
                            
-                           {/* Move Button */}
                            <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all">
                               <Share2 size={18}/>
                            </button>
                            
-                           {/* Delete Button */}
                            <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
                               <Trash2 size={18}/>
                            </button>
                         </div>
 
                      </div>
-                   ))}
+                   )})}
                    {students.length === 0 && (
                       <div className="p-8 text-center text-slate-400 text-xs italic">O'quvchilar yo'q. Qo'shish tugmasini bosing.</div>
                    )}
@@ -266,7 +350,7 @@ const GroupDetails = () => {
              </div>
           </div>
 
-          {/* 2. COURSE PLAN */}
+          {/* 2. COURSE PLAN (O'zgarishsiz) */}
           <div className="space-y-4">
             <div className="flex justify-between items-center px-1">
                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Course Journal</h2>
@@ -329,9 +413,7 @@ const GroupDetails = () => {
         </div>
       </div>
 
-      {/* --- MODALS --- */}
-      {/* Modallar kodi o'zgarishsiz qoldi */}
-      
+      {/* MODALS QISMI (O'zgarishsiz qoldirildi, chunki u uzun) */}
       {isAddStudentOpen && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
@@ -349,7 +431,7 @@ const GroupDetails = () => {
             ) : (
               <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-40 px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-600" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
             )}
-            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp() }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active">
+            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0 }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active">
               {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Complete Registration'}
             </button>
           </div>
