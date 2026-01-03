@@ -20,7 +20,7 @@ const GroupDetails = () => {
   const [lessons, setLessons] = useState([]); 
   const [allGroups, setAllGroups] = useState([]);
   
-  // VIEW MODE: List (A-Z) yoki Leaderboard (XP)
+  // VIEW MODE
   const [studentViewMode, setStudentViewMode] = useState('list'); 
   
   // Accordion States
@@ -54,24 +54,21 @@ const GroupDetails = () => {
 
   const fetchData = async () => {
     try {
-      // 1. Guruh ma'lumotlari
       const groupDoc = await getDoc(doc(db, "groups", groupId));
       if (groupDoc.exists()) setGroupName(groupDoc.data().name);
       else navigate('/');
 
-      // 2. Barcha baholarni olish (Average hisoblash uchun)
+      // Grades
       const qGrades = query(collection(db, "grades"), where("groupId", "==", groupId));
       const snapGrades = await getDocs(qGrades);
       const allGrades = snapGrades.docs.map(d => d.data());
 
-      // 3. O'quvchilarni olish
+      // Students
       const qS = query(collection(db, "students"), where("groupId", "==", groupId));
       const snapS = await getDocs(qS);
       
       const studentsList = snapS.docs.map(d => {
         const sData = d.data();
-        
-        // --- AVERAGE GRADE CALCULATION ---
         const studentGrades = allGrades.filter(g => g.studentId === d.id);
         const totalScore = studentGrades.reduce((acc, curr) => acc + (curr.score || 0), 0);
         const averageScore = studentGrades.length > 0 
@@ -82,19 +79,19 @@ const GroupDetails = () => {
           id: d.id, 
           ...sData,
           gameXp: sData.gameXp || 0,
-          averageScore: averageScore // Yangi maydon
+          averageScore: averageScore 
         };
       });
       
       studentsList.sort((a, b) => a.name.localeCompare(b.name)); 
       setStudents(studentsList);
 
-      // 4. Darslar
+      // Lessons
       const qL = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
       const snapL = await getDocs(qL);
       setLessons(snapL.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // 5. Boshqa guruhlar (Move uchun)
+      // Groups for move
       const user = auth.currentUser;
       if (user) {
         const qG = query(collection(db, "groups"), where("teacherId", "==", user.uid));
@@ -106,7 +103,6 @@ const GroupDetails = () => {
 
   useEffect(() => { fetchData(); }, [groupId]);
 
-  // DISPLAYED STUDENTS (Filter/Sort logic)
   const getDisplayedStudents = () => {
     let list = [...students];
     if (studentViewMode === 'leaderboard') {
@@ -114,17 +110,15 @@ const GroupDetails = () => {
     }
     return list;
   };
-
   const displayedStudents = getDisplayedStudents();
 
-  // AVATAR URL GENERATOR
   const getAvatarUrl = (seed) => {
     const safeSeed = seed || "default";
     const cleanSeed = safeSeed.replace('bot_', '');
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
   };
 
-  // --- HELPER FUNCTIONS ---
+  // Helpers
   const groupLessonsByMonth = () => {
     const groups = {};
     lessons.forEach(lesson => {
@@ -153,7 +147,7 @@ const GroupDetails = () => {
   const groupedGrades = groupGradesByMonth();
   const toggleGradeMonth = (month) => setExpandedGradeMonths(prev => ({ ...prev, [month]: !prev[month] }));
 
-  // --- CRUD Functions ---
+  // Handlers
   const handleDeleteGroup = async () => {
     if (window.confirm(`"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?`)) {
       setLoading(true); await deleteDoc(doc(db, "groups", groupId)); navigate('/');
@@ -185,11 +179,8 @@ const GroupDetails = () => {
     
     const q = query(collection(db, "grades"), where("studentId", "==", student.id), orderBy("date", "desc"));
     const snap = await getDocs(q);
-    
     const data = snap.docs.map(d => ({ 
-        id: d.id,
-        ...d.data(),
-        rawDate: d.data().date,
+        id: d.id, ...d.data(), rawDate: d.data().date,
         dateStr: d.data().date?.toDate().toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit'})
     }));
     setStudentGrades(data);
@@ -217,7 +208,6 @@ const GroupDetails = () => {
         else { await addDoc(collection(db, "grades"), { studentId: selectedStudent.id, studentName: selectedStudent.name, groupId, score: Number(sc), comment: selectedLesson.topic, taskType: tT, lessonId: selectedLesson.id, date: serverTimestamp() }); }
       }
       setIsGradeModalOpen(false);
-      // Average score yangilanishi uchun qayta yuklaymiz
       fetchData();
     } catch (er) { alert(er.message); } finally { setLoading(false); }
   };
@@ -232,11 +222,11 @@ const GroupDetails = () => {
     <div className="min-h-screen bg-[#F8FAFC] pb-32">
       
       {/* 1. FIXED HEADER */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm px-6 py-4 flex items-center justify-between">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm px-4 sm:px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/')} className="p-2 rounded-full bg-slate-50 hover:bg-slate-100 transition-colors"><ArrowLeft size={20}/></button>
-          <div>
-            <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none uppercase italic">{groupName}</h1>
+          <div className="flex flex-col">
+            <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none uppercase italic truncate max-w-[200px]">{groupName}</h1>
             <p className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase">Teacher Panel</p>
           </div>
         </div>
@@ -246,7 +236,7 @@ const GroupDetails = () => {
       <div className="pt-24 px-4 sm:px-6 max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* 1. STUDENTS LIST & LEADERBOARD */}
+          {/* STUDENTS LIST */}
           <div className="lg:col-span-2 space-y-3">
              <div className="flex justify-between items-center px-1">
                 <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Students ({students.length})</h2>
@@ -255,25 +245,13 @@ const GroupDetails = () => {
              
              <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
                 
-                {/* LIST / LEADERBOARD TOGGLE */}
                 <div className="flex border-b border-slate-100">
-                    <button 
-                        onClick={() => setStudentViewMode('list')}
-                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${studentViewMode === 'list' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                    >
-                        <List size={14} /> Ro'yxat (A-Z)
-                    </button>
-                    <button 
-                        onClick={() => setStudentViewMode('leaderboard')}
-                        className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${studentViewMode === 'leaderboard' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}
-                    >
-                        <Trophy size={14} /> Reyting (XP)
-                    </button>
+                    <button onClick={() => setStudentViewMode('list')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${studentViewMode === 'list' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}><List size={14} /> Ro'yxat</button>
+                    <button onClick={() => setStudentViewMode('leaderboard')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors ${studentViewMode === 'leaderboard' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100'}`}><Trophy size={14} /> Reyting</button>
                 </div>
 
                 <div className="divide-y divide-slate-50 font-bold text-slate-700">
                    {displayedStudents.map((s, index) => {
-                     // Leaderboard uslubi
                      let rankStyle = "bg-slate-100 text-slate-500";
                      if (studentViewMode === 'leaderboard') {
                         if (index === 0) rankStyle = "bg-yellow-100 text-yellow-600 border border-yellow-200";
@@ -281,62 +259,52 @@ const GroupDetails = () => {
                         else if (index === 2) rankStyle = "bg-orange-100 text-orange-600 border border-orange-200";
                      }
 
-                     // Baho rangi (Average Score)
                      let scoreColor = "bg-slate-100 text-slate-400";
                      if (s.averageScore >= 80) scoreColor = "bg-emerald-100 text-emerald-600";
                      else if (s.averageScore >= 60) scoreColor = "bg-yellow-100 text-yellow-600";
                      else if (s.averageScore > 0) scoreColor = "bg-rose-100 text-rose-600";
 
                      return (
-                     <div key={s.id} className={`group p-4 flex items-center justify-between gap-3 transition-colors ${studentViewMode === 'leaderboard' && index < 3 ? 'bg-slate-50/50' : 'hover:bg-slate-50'}`}>
+                     <div key={s.id} className={`group p-4 flex items-center justify-between gap-2 transition-colors ${studentViewMode === 'leaderboard' && index < 3 ? 'bg-slate-50/50' : 'hover:bg-slate-50'}`}>
                         
-                        {/* Chap tomon: Avatar, Ism va Statistika */}
-                        <div className="flex items-center gap-3 overflow-hidden">
-                           {/* Reyting raqami (faqat leaderboard rejimida) */}
+                        <div className="flex items-center gap-3 overflow-hidden min-w-0 flex-1">
                            {studentViewMode === 'leaderboard' && (
-                               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${rankStyle}`}>
-                                   {index + 1}
-                               </div>
+                               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${rankStyle}`}>{index + 1}</div>
                            )}
 
                            <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 flex-shrink-0 relative">
                               <img src={getAvatarUrl(s.avatarSeed || s.name)} alt="" className="w-full h-full object-cover"/>
                            </div>
                            
-                           <div className="flex flex-col">
-                               <span className="text-sm truncate flex items-center gap-1">
+                           <div className="flex flex-col min-w-0">
+                               <span className="text-sm truncate flex items-center gap-1 font-bold">
                                    {s.name}
                                    {studentViewMode === 'leaderboard' && index === 0 && <Crown size={12} className="text-yellow-500 fill-yellow-500"/>}
                                </span>
                                
-                               {/* STATISTIKA: XP va O'rtacha Baho */}
-                               <div className="flex items-center gap-2 mt-0.5">
-                                  {/* XP */}
-                                  <div className="flex items-center gap-1 text-[9px] text-indigo-500 font-black uppercase bg-indigo-50 px-1.5 py-0.5 rounded-md">
-                                     <Zap size={10} className="fill-indigo-500"/>
-                                     {s.gameXp} XP
+                               <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                                  <div className="flex items-center gap-1 text-[9px] text-indigo-500 font-black uppercase bg-indigo-50 px-1.5 py-0.5 rounded-md shrink-0">
+                                     <Zap size={10} className="fill-indigo-500"/>{s.gameXp} XP
                                   </div>
-
-                                  {/* Average Score */}
-                                  <div className={`flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md ${scoreColor}`}>
-                                     <Percent size={10} />
-                                     {s.averageScore}%
+                                  <div className={`flex items-center gap-1 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md shrink-0 ${scoreColor}`}>
+                                     <Percent size={10} />{s.averageScore}%
                                   </div>
                                </div>
                            </div>
                         </div>
 
-                        {/* O'ng tomon: Tugmalar */}
-                        <div className="flex items-center gap-1 shrink-0">
-                           <button onClick={() => openGradeModal(s)} className="p-2 text-indigo-400 bg-indigo-50 rounded-lg hover:bg-indigo-600 hover:text-white transition-all">
+                        {/* ACTIONS - Mobile Friendly: Increased spacing and touch targets */}
+                        <div className="flex items-center gap-0.5 shrink-0">
+                           <button onClick={() => openGradeModal(s)} className="p-2.5 text-indigo-400 bg-indigo-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all active:scale-95">
                               <Star size={18} fill="currentColor" className="opacity-80"/>
                            </button>
                            
-                           <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all">
+                           {/* Only show these on larger screens or make them smaller on mobile to save space if needed */}
+                           <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2.5 text-slate-300 hover:text-indigo-600 rounded-xl hover:bg-indigo-50 transition-all active:scale-95">
                               <Share2 size={18}/>
                            </button>
                            
-                           <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
+                           <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2.5 text-slate-300 hover:text-red-500 rounded-xl hover:bg-red-50 transition-all active:scale-95">
                               <Trash2 size={18}/>
                            </button>
                         </div>
@@ -350,7 +318,7 @@ const GroupDetails = () => {
              </div>
           </div>
 
-          {/* 2. COURSE PLAN (O'zgarishsiz) */}
+          {/* COURSE JOURNAL */}
           <div className="space-y-4">
             <div className="flex justify-between items-center px-1">
                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Course Journal</h2>
@@ -380,22 +348,24 @@ const GroupDetails = () => {
                       <div className="border-t border-slate-100 bg-slate-50/30 p-2 space-y-2">
                         {monthLessons.map((l) => (
                           <div key={l.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-colors">
-                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => { setEditingLesson(l); setLessonTopic(l.topic); setLessonDate(l.date); setLessonTasks(l.tasks || [{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="p-1 bg-slate-50 text-slate-400 rounded hover:text-indigo-600"><Edit2 size={12}/></button>
-                              <button onClick={() => handleDeleteLesson(l.id)} className="p-1 bg-slate-50 text-slate-400 rounded hover:text-red-500"><Trash2 size={12}/></button>
+                            {/* MOBILE FIX: Buttons are always visible on mobile (opacity-100), hover only on desktop (lg:opacity-0) */}
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity z-10">
+                              <button onClick={() => { setEditingLesson(l); setLessonTopic(l.topic); setLessonDate(l.date); setLessonTasks(l.tasks || [{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="p-1.5 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg hover:text-indigo-600 shadow-sm"><Edit2 size={14}/></button>
+                              <button onClick={() => handleDeleteLesson(l.id)} className="p-1.5 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg hover:text-red-500 shadow-sm"><Trash2 size={14}/></button>
                             </div>
                             <div className="flex items-start gap-3">
                                <div className="flex flex-col items-center justify-center bg-slate-100 rounded-lg p-1.5 min-w-[3rem]">
                                   <span className="text-[8px] font-black text-slate-500 uppercase">{l.date.split('-')[1]}</span>
                                   <span className="text-sm font-black text-slate-800 leading-none">{l.date.split('-')[2]}</span>
                                </div>
-                               <div>
-                                  <h4 className="font-bold text-slate-700 text-xs uppercase leading-tight pr-6">{l.topic}</h4>
+                               <div className="min-w-0">
+                                  <h4 className="font-bold text-slate-700 text-xs uppercase leading-tight pr-10 truncate">{l.topic}</h4>
                                   <div className="flex flex-wrap gap-1 mt-1.5">
                                     {l.tasks?.map((t, i) => (
-                                      <div key={i} className="flex items-center bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded text-[8px] text-slate-500 uppercase font-bold">
-                                        {typeof t === 'object' ? t.text : t}
-                                        <button onClick={() => deleteTaskFromLesson(l.id, l.tasks, i)} className="ml-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><X size={8} /></button>
+                                      <div key={i} className="flex items-center bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded text-[8px] text-slate-500 uppercase font-bold max-w-full">
+                                        <span className="truncate max-w-[150px]">{typeof t === 'object' ? t.text : t}</span>
+                                        {/* Mobile delete task button fix */}
+                                        <button onClick={() => deleteTaskFromLesson(l.id, l.tasks, i)} className="ml-1 text-slate-300 hover:text-red-500 lg:opacity-0 lg:group-hover:opacity-100 opacity-100"><X size={8} /></button>
                                       </div>
                                     ))}
                                   </div>
@@ -413,11 +383,13 @@ const GroupDetails = () => {
         </div>
       </div>
 
-      {/* MODALS QISMI (O'zgarishsiz qoldirildi, chunki u uzun) */}
+      {/* MODALS: Optimized for Mobile (Bottom Sheet Style) */}
+      
+      {/* ADD STUDENT MODAL */}
       {isAddStudentOpen && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
-          <div className="bg-white w-full sm:w-auto sm:min-w-[500px] rounded-t-[3rem] sm:rounded-[2.5rem] p-8 pb-12 relative z-10 shadow-2xl">
+          <div className="bg-white w-full sm:w-auto sm:min-w-[500px] rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 sm:p-8 pb-10 sm:pb-12 relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
             <h3 className="text-2xl font-black text-slate-800 mb-6 uppercase italic text-center">Add Students</h3>
             <div className="flex bg-slate-50 p-1 rounded-2xl mb-6 border border-slate-100">
                <button onClick={() => setAddMode('single')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Single</button>
@@ -431,17 +403,18 @@ const GroupDetails = () => {
             ) : (
               <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-40 px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-600" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
             )}
-            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0 }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active">
+            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0 }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active mb-safe">
               {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Complete Registration'}
             </button>
           </div>
         </div>
       )}
 
+      {/* MOVE STUDENT MODAL */}
       {isMoveModalOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMoveModalOpen(false)}></div>
-          <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-md relative z-10 shadow-2xl">
+          <div className="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-8 w-full max-w-md relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
             <h3 className="text-xl font-black text-slate-800 mb-2 uppercase italic tracking-tight">Move Student</h3>
             <div className="flex items-center gap-3 mb-6 bg-slate-50 p-3 rounded-2xl border border-slate-100">
                <div className="w-10 h-10 rounded-full bg-white border border-slate-200 overflow-hidden">
@@ -455,7 +428,7 @@ const GroupDetails = () => {
                 <option value="">Guruhni tanlang...</option>
                 {allGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
-              <button onClick={handleMoveStudent} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center">
+              <button onClick={handleMoveStudent} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg uppercase text-[10px] tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center mb-safe">
                 {loading ? <Loader2 className="animate-spin" /> : "Confirm Move"}
               </button>
             </div>
@@ -463,10 +436,11 @@ const GroupDetails = () => {
         </div>
       )}
 
+      {/* GRADE MODAL (Full screen on mobile for better focus) */}
       {isGradeModalOpen && selectedStudent && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-white/60 backdrop-blur-xl animate-in fade-in duration-500" onClick={() => setIsGradeModalOpen(false)}></div>
-          <div className="bg-white/95 border border-white shadow-2xl rounded-[2.5rem] w-full max-w-lg relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white/95 border border-white shadow-2xl rounded-t-[2.5rem] sm:rounded-[2.5rem] w-full max-w-lg relative z-10 overflow-hidden flex flex-col h-[90vh] sm:h-auto sm:max-h-[90vh] animate-in slide-in-from-bottom duration-300">
             
             <div className="p-4 bg-indigo-600 text-white flex items-center justify-between relative overflow-hidden shrink-0">
                <div className="flex items-center gap-3 relative z-10">
@@ -484,7 +458,7 @@ const GroupDetails = () => {
                <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
             </div>
 
-            <div className="p-5 overflow-y-auto flex-1 custom-scrollbar space-y-6">
+            <div className="p-5 overflow-y-auto flex-1 custom-scrollbar space-y-6 pb-20 sm:pb-5">
               <section>
                 <div className="flex items-center gap-2 mb-4">
                    <div className="w-1 h-4 bg-indigo-600 rounded-full"></div>
@@ -509,7 +483,7 @@ const GroupDetails = () => {
                               return (
                                   <div key={idx} className={`flex items-center justify-between p-3 border rounded-2xl transition-all ${hasExistingGrade ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-slate-100'}`}>
                                       <span className={`font-bold text-[11px] ${hasExistingGrade ? 'text-indigo-700' : 'text-slate-600'}`}>{taskName}</span>
-                                      <input type="number" min="0" max="100" placeholder="-" className={`w-16 text-center font-black text-indigo-600 py-1.5 rounded-xl outline-none text-xs border focus:ring-2 focus:ring-indigo-500 ${hasExistingGrade ? 'bg-white border-indigo-100' : 'bg-slate-50 border-slate-200'}`} value={gradeScores[taskName] || ''} onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} />
+                                      <input type="number" inputMode="numeric" min="0" max="100" placeholder="-" className={`w-16 text-center font-black text-indigo-600 py-1.5 rounded-xl outline-none text-xs border focus:ring-2 focus:ring-indigo-500 ${hasExistingGrade ? 'bg-white border-indigo-100' : 'bg-slate-50 border-slate-200'}`} value={gradeScores[taskName] || ''} onChange={(e) => setGradeScores({...gradeScores, [taskName]: e.target.value})} />
                                   </div>
                               ); 
                           })}
@@ -564,10 +538,11 @@ const GroupDetails = () => {
         </div>
       )}
 
+      {/* ADD LESSON MODAL */}
       {isAddLessonOpen && (
-         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => {setIsAddLessonOpen(false); setEditingLesson(null);}}></div>
-          <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm relative z-10 shadow-2xl">
+          <div className="bg-white rounded-t-[2.5rem] sm:rounded-[2rem] p-6 w-full max-w-sm relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
             <h3 className="text-xl font-black text-slate-800 mb-4 uppercase text-center italic">{editingLesson ? "Edit Lesson" : "New Lesson"}</h3>
               <form onSubmit={handleAddLesson} className="space-y-3">
                 <input type="date" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm" value={lessonDate} onChange={e => setLessonDate(e.target.value)} />
@@ -582,7 +557,7 @@ const GroupDetails = () => {
                   ))}
                   <button type="button" onClick={() => setLessonTasks([...lessonTasks, { text: '', completed: false }])} className="w-full py-2 border border-dashed border-slate-200 rounded-lg text-slate-400 font-bold text-[10px] hover:border-indigo-400">+ Add Task</button>
                 </div>
-                <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest mt-2">Save</button>
+                <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest mt-2 mb-safe">Save</button>
               </form>
           </div>
         </div>

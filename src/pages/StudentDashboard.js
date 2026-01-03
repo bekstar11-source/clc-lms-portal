@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  LogOut, Award, Loader2, Settings,
+  LogOut, Loader2, Settings,
   Trophy, AlertCircle, ArrowRight, BookOpen,
   ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw,
   LayoutDashboard, ClipboardList, Star, Medal, Zap,
@@ -14,7 +14,7 @@ import {
   XAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 
-// YANGI O'YIN KOMPONENTINI IMPORT QILISH (FILE YO'LIGA E'TIBOR BERING!)
+// O'YIN KOMPONENTI (Fayl yo'li to'g'riligiga ishonch hosil qiling)
 import WordGame from './WordGame';
 
 const StudentDashboard = () => {
@@ -287,13 +287,16 @@ const StudentDashboard = () => {
            <button onClick={handleRefresh} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl active:bg-slate-200 transition-colors">
               <RefreshCcw size={20} />
            </button>
+          
           <div className="relative">
             <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-slate-50'}`}>
               <Bell size={20} />
               {unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
             </button>
+            
+            {/* BILDIRISHNOMA OYNASI (MOBILE FIX) */}
             {isNotifOpen && (
-              <div className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 animate-in fade-in slide-in-from-top-2 z-[60]">
+              <div className="fixed top-16 right-4 left-4 md:absolute md:top-12 md:right-0 md:left-auto md:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2 animate-in fade-in slide-in-from-top-2 z-[60]">
                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-50">
                     <span className="text-xs font-black text-slate-800 uppercase tracking-widest">Bildirishnoma</span>
                     <button onClick={() => {setNotifications([]); setUnreadCount(0); localStorage.setItem('lastNotificationCheck', new Date().toISOString());}} className="text-[9px] font-bold text-slate-400 hover:text-indigo-600 uppercase">Tozalash</button>
@@ -343,7 +346,9 @@ const StudentDashboard = () => {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-4 space-y-6">
+      {/* --- ASOSIY CONTENT --- */}
+      {/* O'yin uchun padding 0 qilindi (Mobile layout uchun) */}
+      <div className={`max-w-7xl mx-auto space-y-6 ${activeTab === 'wordgame' ? 'p-0 md:p-4' : 'p-4'}`}>
         
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
@@ -425,20 +430,49 @@ const StudentDashboard = () => {
               </div>
             </div>
 
+            {/* --- CHART FIX (Recharts warning correction) --- */}
             <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm">
                <h3 className="text-sm font-black text-slate-800 mb-4 px-2">Progress</h3>
-               <div className="w-full h-[250px] min-w-0">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
-                    <AreaChart data={[...grades].reverse()}>
-                      <defs><linearGradient id="scoreColor" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4F46E5" stopOpacity={0.2}/><stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/></linearGradient></defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                      <XAxis dataKey="dateStr" fontSize={10} axisLine={false} tickLine={false} />
-                      <Tooltip contentStyle={{ borderRadius: '15px', border: 'none' }} />
-                      <Area type="monotone" dataKey="score" stroke="#4F46E5" strokeWidth={3} fill="url(#scoreColor)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+               <div className="w-full h-[250px]" style={{ width: '100%', height: 250 }}>
+                  {grades.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={[...grades].reverse()} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="scoreColor" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                        <XAxis 
+                          dataKey="dateStr" 
+                          fontSize={10} 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#94a3b8' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} 
+                          itemStyle={{ color: '#4F46E5', fontWeight: 'bold' }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="score" 
+                          stroke="#4F46E5" 
+                          strokeWidth={3} 
+                          fill="url(#scoreColor)" 
+                          activeDot={{ r: 6, strokeWidth: 0 }}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400 text-xs italic">
+                      Grafik uchun ma'lumot yetarli emas
+                    </div>
+                  )}
                </div>
             </div>
+            
           </div>
         )}
         
@@ -533,10 +567,10 @@ const StudentDashboard = () => {
           </div>
         )}
 
-        {/* 4. WORD GAME TAB (COMPONENT SIFATIDA) */}
-       {activeTab === 'wordgame' && (
-     <WordGame student={student} />
-)}
+        {/* 4. WORD GAME TAB */}
+        {activeTab === 'wordgame' && (
+          <WordGame student={student} />
+        )}
 
       </div>
       
