@@ -56,7 +56,11 @@ const GroupDetails = () => {
 
       const qS = query(collection(db, "students"), where("groupId", "==", groupId));
       const snapS = await getDocs(qS);
-      setStudents(snapS.docs.map(d => ({ id: d.id, ...d.data() })));
+      
+      // --- O'ZGARISH 1: Alifbo tartibida saralash ---
+      const studentsList = snapS.docs.map(d => ({ id: d.id, ...d.data() }));
+      studentsList.sort((a, b) => a.name.localeCompare(b.name)); 
+      setStudents(studentsList);
 
       const qL = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
       const snapL = await getDocs(qL);
@@ -136,8 +140,16 @@ const GroupDetails = () => {
   };
   const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(); }};
   
+  // --- Formani tozalash va Grade Modalni ochish ---
   const openGradeModal = async (student) => {
-    setSelectedStudent(student); setIsGradeModalOpen(true);
+    setGradeScores({});
+    setSelectedLesson(null);
+    setExistingGradeDocs({});
+    setStudentGrades([]); 
+
+    setSelectedStudent(student); 
+    setIsGradeModalOpen(true);
+    
     const q = query(collection(db, "grades"), where("studentId", "==", student.id), orderBy("date", "desc"));
     const snap = await getDocs(q);
     
@@ -156,7 +168,8 @@ const GroupDetails = () => {
     if (l) {
       l.tasks?.forEach(t => iS[typeof t === 'object' ? t.text : t] = '');
       const q = query(collection(db, "grades"), where("studentId", "==", selectedStudent.id), where("lessonId", "==", l.id));
-      const qs = await getDocs(q); qs.forEach((d) => { iS[d.data().taskType] = d.data().score; dM[d.data().taskType] = d.id; });
+      const qs = await getDocs(q); 
+      qs.forEach((d) => { iS[d.data().taskType] = d.data().score; dM[d.data().taskType] = d.id; });
     }
     setGradeScores(iS); setExistingGradeDocs(dM);
   };
@@ -181,10 +194,9 @@ const GroupDetails = () => {
   if (loading && !isAddStudentOpen && !isMoveModalOpen) return <div className="h-screen flex items-center justify-center bg-white"><Loader2 className="animate-spin text-indigo-600" size={40}/></div>;
 
   return (
-    // DIQQAT: pb-32 bu yerda footer uchun joy qoldiradi
     <div className="min-h-screen bg-[#F8FAFC] pb-32">
       
-      {/* 1. FIXED HEADER (Doim tepada qotib turadi) */}
+      {/* 1. FIXED HEADER */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/')} className="p-2 rounded-full bg-slate-50 hover:bg-slate-100 transition-colors"><ArrowLeft size={20}/></button>
@@ -207,31 +219,44 @@ const GroupDetails = () => {
              </div>
              
              <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
+                
+                {/* O'ZGARISH 2: Table Header (faqat kompyuterda) */}
                 <div className="hidden sm:flex bg-slate-50 border-b border-slate-100 p-4 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                   <div className="flex-1 px-2">Student</div>
-                   <div className="w-40 text-center">Actions</div>
+                   <div className="flex-1 px-2">Student List (A-Z)</div>
+                   <div className="w-32 text-center">Actions</div>
                 </div>
 
                 <div className="divide-y divide-slate-50 font-bold text-slate-700">
                    {students.map((s) => (
-                     <div key={s.id} className="group p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
-                        <div className="flex items-center gap-3">
+                     // O'ZGARISH 3: Tugmalar va Ism bir qatorda
+                     <div key={s.id} className="group p-4 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                        
+                        {/* Chap tomon: Avatar va Ism */}
+                        <div className="flex items-center gap-3 overflow-hidden">
                            <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 flex-shrink-0">
                               <img src={getAvatarUrl(s.avatarSeed || s.name)} alt="" className="w-full h-full object-cover"/>
                            </div>
-                           <span className="text-sm">{s.name}</span>
+                           <span className="text-sm truncate">{s.name}</span>
                         </div>
-                        <div className="flex items-center justify-end gap-2 w-full sm:w-auto border-t border-dashed border-slate-100 sm:border-none pt-3 sm:pt-0 mt-1 sm:mt-0">
-                           <button onClick={() => openGradeModal(s)} className="flex-1 sm:flex-none flex items-center justify-center space-x-1 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all">
-                              <Star size={14}/><span>Grade</span>
+
+                        {/* O'ng tomon: Tugmalar (Ism yonida) */}
+                        <div className="flex items-center gap-1 shrink-0">
+                           {/* GRADE Button (Faqat Star) */}
+                           <button onClick={() => openGradeModal(s)} className="p-2 text-indigo-400 bg-indigo-50 rounded-lg hover:bg-indigo-600 hover:text-white transition-all">
+                              <Star size={18} fill="currentColor" className="opacity-80"/>
                            </button>
+                           
+                           {/* Move Button */}
                            <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 transition-all">
-                              <Share2 size={16}/>
+                              <Share2 size={18}/>
                            </button>
+                           
+                           {/* Delete Button */}
                            <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all">
-                              <Trash2 size={16}/>
+                              <Trash2 size={18}/>
                            </button>
                         </div>
+
                      </div>
                    ))}
                    {students.length === 0 && (
@@ -241,14 +266,13 @@ const GroupDetails = () => {
              </div>
           </div>
 
-          {/* 2. COURSE PLAN (O'ZGARTIRILDI: Ichki scroll olib tashlandi) */}
+          {/* 2. COURSE PLAN */}
           <div className="space-y-4">
             <div className="flex justify-between items-center px-1">
                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Course Journal</h2>
                <button onClick={() => setIsAddLessonOpen(true)} className="p-2 bg-indigo-600 text-white rounded-xl tap-active shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-colors"><Plus size={18}/></button>
             </div>
             
-            {/* BU YERDA 'max-h' va 'overflow' olib tashlandi, endi sahifa bilan birga scroll bo'ladi */}
             <div className="space-y-3">
               {Object.keys(groupedLessons).length === 0 && <p className="text-center text-slate-400 text-xs py-4">Hozircha darslar yo'q</p>}
               
@@ -306,7 +330,7 @@ const GroupDetails = () => {
       </div>
 
       {/* --- MODALS --- */}
-      {/* ... Qolgan modallar o'zgarishsiz qoldi ... */}
+      {/* Modallar kodi o'zgarishsiz qoldi */}
       
       {isAddStudentOpen && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-0 sm:p-4">

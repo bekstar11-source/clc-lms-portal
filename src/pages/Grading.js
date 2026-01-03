@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { 
-  BarChart3, Users, Calendar, ArrowLeft, Trophy, Search, ChevronDown 
+  BarChart3, Calendar, Trophy, Search, ChevronDown, Clock
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
@@ -16,8 +15,6 @@ const Grading = () => {
   const [lessons, setLessons] = useState([]);
   const [grades, setGrades] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  const navigate = useNavigate();
 
   useEffect(() => {
     fetchGroups();
@@ -45,6 +42,8 @@ const Grading = () => {
       const qS = query(collection(db, "students"), where("groupId", "==", selectedGroupId));
       const snapS = await getDocs(qS);
       const studentsList = snapS.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Alifbo tartibida
+      studentsList.sort((a, b) => a.name.localeCompare(b.name));
       setStudents(studentsList);
 
       // 2. Darslar (Sana bo'yicha)
@@ -60,29 +59,81 @@ const Grading = () => {
     finally { setLoading(false); }
   };
 
-  // O'quvchi va Dars kesishmasidagi bahoni topish
-  const getGrade = (studentId, lessonId) => {
-    const grade = grades.find(g => g.studentId === studentId && g.lessonId === lessonId);
+  // --- LOGIKA: Har bir dars ichidagi vazifalarni alohida ustun qilish ---
+  const tableColumns = useMemo(() => {
+    const cols = [];
+    lessons.forEach(lesson => {
+      if (lesson.tasks && lesson.tasks.length > 0) {
+        lesson.tasks.forEach(task => {
+          cols.push({
+            id: `${lesson.id}-${typeof task === 'object' ? task.text : task}`,
+            lessonId: lesson.id,
+            date: lesson.date,
+            taskName: typeof task === 'object' ? task.text : task,
+            topic: lesson.topic
+          });
+        });
+      } else {
+        // Agar vazifa bo'lmasa, umumiy darsni o'zini chiqaramiz
+        cols.push({
+            id: lesson.id,
+            lessonId: lesson.id,
+            date: lesson.date,
+            taskName: 'General',
+            topic: lesson.topic
+        });
+      }
+    });
+    return cols;
+  }, [lessons]);
+
+  // Bahoni olish (Student + Lesson + Task)
+  const getGrade = (studentId, lessonId, taskName) => {
+    const grade = grades.find(g => 
+        g.studentId === studentId && 
+        g.lessonId === lessonId && 
+        g.taskType === taskName
+    );
     return grade ? grade.score : '-';
   };
 
-  // O'quvchining o'rtacha bahosini hisoblash
+  // O'quvchining umumiy o'rtacha bahosi
   const calculateAverage = (studentId) => {
     const studentGrades = grades.filter(g => g.studentId === studentId);
     if (studentGrades.length === 0) return 0;
-    const sum = studentGrades.reduce((acc, curr) => acc + curr.score, 0);
-    return Math.round(sum / studentGrades.length);
+    
+    // Faqat raqamlarni hisoblash (xatolarni oldini olish)
+    const validGrades = studentGrades.map(g => Number(g.score)).filter(s => !isNaN(s));
+    if (validGrades.length === 0) return 0;
+
+    const sum = validGrades.reduce((acc, curr) => acc + curr, 0);
+    return Math.round(sum / validGrades.length);
   };
 
-  // Reyting uchun ma'lumot tayyorlash
+  // Vaqtni formatlash (So'nggi faollik uchun)
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return 'No info';
+    // Firebase Timestamp ni Date ga o'tkazish
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    
+    const now = new Date();
+    const diffInHours = Math.abs(now - date) / 36e5;
+
+    if (diffInHours < 24) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  };
+
+  // Chart Data
   const chartData = students.map(s => ({
-    name: s.name.split(' ')[0], // Ismni qisqartirish
+    name: s.name.split(' ')[0], 
     average: calculateAverage(s.id)
-  })).sort((a, b) => b.average - a.average); // Eng zo'rlari boshida
+  })).sort((a, b) => b.average - a.average);
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-8 font-sans pb-24">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-full mx-auto space-y-6">
         
         {/* HEADER & FILTER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -111,9 +162,9 @@ const Grading = () => {
 
         {selectedGroupId ? (
           <>
-            {/* ANALYTICS SECTION (Responsive Grid) */}
+            {/* ANALYTICS SECTION */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* TOP STUDENTS CARD */}
+              {/* TOP STUDENTS */}
               <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden">
                 <div className="relative z-10">
                   <div className="flex items-center gap-2 mb-4">
@@ -132,11 +183,10 @@ const Grading = () => {
                     ))}
                   </div>
                 </div>
-                {/* Background Decor */}
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl translate-x-10 -translate-y-10"></div>
               </div>
 
-              {/* CHART CARD */}
+              {/* CHART */}
               <div className="lg:col-span-2 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm h-[300px]">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">Guruh O'zlashtirishi</h3>
                 <ResponsiveContainer width="100%" height="85%">
@@ -155,57 +205,84 @@ const Grading = () => {
               </div>
             </div>
 
-            {/* THE BIG TABLE (Mobile Optimized with Horizontal Scroll) */}
+            {/* THE BIG TABLE (Horizontal Scroll & Task Based) */}
             <div className="bg-white rounded-[2rem] border border-slate-200 shadow-lg overflow-hidden flex flex-col">
               <div className="p-6 border-b border-slate-100 bg-slate-50/50">
                 <h3 className="text-lg font-black text-slate-800">To'liq Jurnal</h3>
-                <p className="text-xs text-slate-400 font-bold mt-1">Barcha darslar va baholar tarixi</p>
+                <p className="text-xs text-slate-400 font-bold mt-1">Barcha topshiriqlar va baholar tarixi</p>
               </div>
               
               <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full min-w-[800px] border-collapse">
+                <table className="w-full border-collapse">
                   <thead>
                     <tr>
-                      {/* Fixed Column Header */}
-                      <th className="sticky left-0 z-20 bg-slate-50 border-b border-r border-slate-200 px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest w-[180px] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
-                        O'quvchi F.I.O
+                      {/* Fixed Column Header: O'quvchi */}
+                      <th className="sticky left-0 z-20 bg-slate-50 border-b border-r border-slate-200 px-4 py-4 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest w-[140px] shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                        Student
                       </th>
-                      {/* Scrollable Date Headers */}
-                      {lessons.map((lesson) => (
-                        <th key={lesson.id} className="px-2 py-4 border-b border-slate-100 bg-white min-w-[80px]">
+                      
+                      {/* Scrollable Task Headers */}
+                      {tableColumns.map((col, index) => (
+                        <th key={index} className="px-2 py-4 border-b border-slate-100 bg-white min-w-[100px] border-r border-dashed border-slate-100">
                           <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md mb-1">{lesson.date.slice(5)}</span>
-                            <span className="text-[9px] text-slate-400 uppercase font-bold truncate max-w-[70px]" title={lesson.topic}>{lesson.topic.slice(0, 8)}...</span>
+                            <span className="text-[9px] font-black text-indigo-400 uppercase tracking-tighter mb-1">{col.date.slice(5)}</span>
+                            {/* Task Name */}
+                            <span className="text-[10px] font-black text-slate-700 bg-slate-100 px-2 py-0.5 rounded uppercase tracking-wide truncate max-w-[90px]" title={col.taskName}>
+                                {col.taskName}
+                            </span>
                           </div>
                         </th>
                       ))}
-                      <th className="px-4 py-4 border-b border-slate-100 bg-slate-50 text-center text-[10px] font-black text-emerald-600 uppercase tracking-widest min-w-[80px]">O'rtacha</th>
+                      
+                      <th className="px-4 py-4 border-b border-slate-100 bg-slate-50 text-center text-[10px] font-black text-emerald-600 uppercase tracking-widest min-w-[80px]">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {students.map((student) => {
                       const avg = calculateAverage(student.id);
+                      // Ismni 2 ga bo'lish
+                      const nameParts = student.name.split(' ');
+                      const firstName = nameParts[0];
+                      const lastName = nameParts.slice(1).join(' ');
+
                       return (
                         <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
                           {/* Fixed Name Column */}
-                          <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-4 py-3 font-bold text-slate-700 text-sm shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)] truncate max-w-[180px]">
-                            {student.name}
+                          <td className="sticky left-0 z-10 bg-white border-r border-slate-100 px-3 py-3 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.05)]">
+                            <div className="flex flex-col">
+                                <span className="font-bold text-slate-700 text-sm leading-tight">{firstName}</span>
+                                <span className="text-[10px] text-slate-400 font-bold leading-tight mb-1.5">{lastName}</span>
+                                
+                                {/* SO'NGI FAOLLIK */}
+                                <div className="flex items-center gap-1 text-[9px] text-indigo-400 bg-indigo-50 w-fit px-1.5 py-0.5 rounded">
+                                    <Clock size={10} />
+                                    <span>{formatLastSeen(student.lastLogin)}</span>
+                                </div>
+                            </div>
                           </td>
-                          {/* Grades */}
-                          {lessons.map((lesson) => {
-                            const score = getGrade(student.id, lesson.id);
-                            let scoreColor = 'text-slate-300'; // Default '-' rangi
+                          
+                          {/* Task Grades */}
+                          {tableColumns.map((col, index) => {
+                            const score = getGrade(student.id, col.lessonId, col.taskName);
+                            let scoreColor = 'text-slate-300'; 
+                            let bgClass = '';
+
                             if (score !== '-') {
-                              scoreColor = score >= 80 ? 'text-emerald-600 bg-emerald-50' : score >= 60 ? 'text-amber-500 bg-amber-50' : 'text-red-500 bg-red-50';
+                                const numScore = Number(score);
+                                if (numScore >= 80) { scoreColor = 'text-emerald-600'; bgClass = 'bg-emerald-50'; }
+                                else if (numScore >= 60) { scoreColor = 'text-amber-500'; bgClass = 'bg-amber-50'; }
+                                else { scoreColor = 'text-red-500'; bgClass = 'bg-red-50'; }
                             }
+
                             return (
-                              <td key={lesson.id} className="px-2 py-3 text-center border-b border-slate-50">
-                                <div className={`inline-flex items-center justify-center w-10 h-8 rounded-lg font-black text-sm ${score === '-' ? '' : scoreColor}`}>
+                              <td key={index} className="px-2 py-3 text-center border-b border-r border-dashed border-slate-100">
+                                <div className={`inline-flex items-center justify-center w-10 h-8 rounded-lg font-black text-sm ${bgClass} ${scoreColor}`}>
                                   {score}
                                 </div>
                               </td>
                             );
                           })}
+                          
                           {/* Average Column */}
                           <td className="px-4 py-3 text-center border-b border-slate-50">
                             <span className={`inline-block px-2 py-1 rounded-lg font-black text-xs ${avg >= 80 ? 'text-white bg-emerald-500' : avg >= 60 ? 'text-white bg-amber-400' : 'text-white bg-red-400'}`}>
