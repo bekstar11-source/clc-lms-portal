@@ -5,7 +5,7 @@ import {
   Trophy, AlertCircle, ArrowRight, BookOpen,
   ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw,
   LayoutDashboard, ClipboardList, Star, Medal, Zap,
-  Gamepad2 
+  Gamepad2, Megaphone // 👈 Megaphone import qilindi
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, orderBy, doc, getDoc } from 'firebase/firestore';
@@ -14,7 +14,7 @@ import {
   XAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 
-// O'YIN KOMPONENTI (Fayl yo'li to'g'riligiga ishonch hosil qiling)
+// O'YIN KOMPONENTI
 import WordGame from './WordGame';
 
 const StudentDashboard = () => {
@@ -25,6 +25,9 @@ const StudentDashboard = () => {
   const [grades, setGrades] = useState([]);
   const [lessons, setLessons] = useState([]);
   
+  // --- YANGI STATE: E'LONLAR ---
+  const [announcements, setAnnouncements] = useState([]);
+
   const [topStudents, setTopStudents] = useState([]);
   const [studentRank, setStudentRank] = useState(0);
   
@@ -45,6 +48,13 @@ const StudentDashboard = () => {
       if (!user) { navigate('/'); return; }
 
       try {
+        // 1. E'LONLARNI YUKLASH (YANGI QISM)
+        const annQuery = query(collection(db, "announcements"), orderBy("createdAt", "desc"));
+        const annSnap = await getDocs(annQuery);
+        const annList = annSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setAnnouncements(annList);
+
+        // 2. STUDENT MA'LUMOTLARI
         const qS = query(collection(db, "students"), where("email", "==", user.email));
         const snapS = await getDocs(qS);
         
@@ -61,6 +71,7 @@ const StudentDashboard = () => {
           const groupSnap = await getDoc(doc(db, "groups", studentData.groupId));
           if (groupSnap.exists()) setGroupName(groupSnap.data().name);
 
+          // LIDERLAR RO'YXATI
           const qAllStudents = query(collection(db, "students"), where("groupId", "==", studentData.groupId));
           const snapAllStudents = await getDocs(qAllStudents);
           
@@ -86,6 +97,7 @@ const StudentDashboard = () => {
           const myRankIndex = leaderData.findIndex(s => s.id === studentData.id);
           setStudentRank(myRankIndex + 1);
 
+          // DARSLARNI YUKLASH
           const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "asc"));
           const lessonsSnapshot = await getDocs(lessonsQuery);
           
@@ -100,6 +112,7 @@ const StudentDashboard = () => {
           setLessons(fetchedLessons);
         }
 
+        // BAHOLARNI YUKLASH
         const gradesQuery = query(collection(db, "grades"), where("studentId", "==", studentData.id), orderBy("date", "desc"));
         const gradesSnapshot = await getDocs(gradesQuery);
         const fetchedGrades = gradesSnapshot.docs.map(doc => {
@@ -294,7 +307,7 @@ const StudentDashboard = () => {
               {unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
             </button>
             
-            {/* BILDIRISHNOMA OYNASI (MOBILE FIX) */}
+            {/* BILDIRISHNOMA OYNASI */}
             {isNotifOpen && (
               <div className="fixed top-16 right-4 left-4 md:absolute md:top-12 md:right-0 md:left-auto md:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2 animate-in fade-in slide-in-from-top-2 z-[60]">
                  <div className="flex justify-between items-center px-3 py-2 border-b border-slate-50">
@@ -347,12 +360,41 @@ const StudentDashboard = () => {
       </div>
 
       {/* --- ASOSIY CONTENT --- */}
-      {/* O'yin uchun padding 0 qilindi (Mobile layout uchun) */}
       <div className={`max-w-7xl mx-auto space-y-6 ${activeTab === 'wordgame' ? 'p-0 md:p-4' : 'p-4'}`}>
         
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            
+            {/* 🔥 YANGI QISM: E'LONLAR */}
+            {announcements.length > 0 && (
+              <div className="mb-2">
+                 <div className="flex items-center gap-2 mb-3 px-1">
+                    <Megaphone className="text-amber-500" size={18}/>
+                    <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">E'lonlar</h2>
+                 </div>
+                 <div className="space-y-3">
+                    {announcements.map(ann => (
+                       <div key={ann.id} className="bg-white p-5 rounded-[1.5rem] border border-amber-100 shadow-sm relative overflow-hidden group">
+                          <div className="relative z-10">
+                             <p className="font-bold text-slate-700 text-sm leading-relaxed">{ann.text}</p>
+                             <div className="flex items-center gap-2 mt-2">
+                                <span className="bg-amber-100 text-amber-600 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">Admin</span>
+                                <span className="text-[10px] text-slate-400 font-bold">
+                                   {ann.createdAt?.seconds ? new Date(ann.createdAt.seconds * 1000).toLocaleDateString() : 'Hozirgina'}
+                                </span>
+                             </div>
+                          </div>
+                          {/* Bezak */}
+                          <div className="absolute -right-4 -bottom-4 text-amber-50 opacity-40 rotate-12 group-hover:scale-110 transition-transform">
+                             <Bell size={64} />
+                          </div>
+                       </div>
+                    ))}
+                 </div>
+              </div>
+            )}
+
             {totalDebts > 0 && (
               <div className="bg-red-50 border-2 border-red-100 p-4 rounded-3xl flex items-center gap-4 shadow-xl shadow-red-100/50 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-20 h-20 bg-red-200/20 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
@@ -430,7 +472,6 @@ const StudentDashboard = () => {
               </div>
             </div>
 
-            {/* --- CHART FIX (Recharts warning correction) --- */}
             <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm">
                <h3 className="text-sm font-black text-slate-800 mb-4 px-2">Progress</h3>
                <div className="w-full h-[250px]" style={{ width: '100%', height: 250 }}>
@@ -574,7 +615,7 @@ const StudentDashboard = () => {
 
       </div>
       
-      {/* MOBIL FOOTER (Fixed Bottom Nav) */}
+      {/* MOBIL FOOTER */}
       <div className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 flex justify-around py-2 z-50 pb-safe">
         <button 
           onClick={() => setActiveTab('dashboard')} 

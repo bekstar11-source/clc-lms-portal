@@ -20,6 +20,9 @@ const GroupDetails = () => {
   const [lessons, setLessons] = useState([]); 
   const [allGroups, setAllGroups] = useState([]);
   
+  // ROLE STATE (YANGI)
+  const [currentUserRole, setCurrentUserRole] = useState(null);
+  
   // VIEW MODE
   const [studentViewMode, setStudentViewMode] = useState('list'); 
   
@@ -54,16 +57,26 @@ const GroupDetails = () => {
 
   const fetchData = async () => {
     try {
+      // 1. Joriy user rolini aniqlash (YANGI QISM)
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const userDoc = await getDoc(doc(db, "students", currentUser.uid));
+        if (userDoc.exists()) {
+            setCurrentUserRole(userDoc.data().role);
+        }
+      }
+
+      // 2. Guruh ma'lumotlari
       const groupDoc = await getDoc(doc(db, "groups", groupId));
       if (groupDoc.exists()) setGroupName(groupDoc.data().name);
       else navigate('/');
 
-      // Grades
+      // 3. Baholar
       const qGrades = query(collection(db, "grades"), where("groupId", "==", groupId));
       const snapGrades = await getDocs(qGrades);
       const allGrades = snapGrades.docs.map(d => d.data());
 
-      // Students
+      // 4. O'quvchilar
       const qS = query(collection(db, "students"), where("groupId", "==", groupId));
       const snapS = await getDocs(qS);
       
@@ -86,18 +99,16 @@ const GroupDetails = () => {
       studentsList.sort((a, b) => a.name.localeCompare(b.name)); 
       setStudents(studentsList);
 
-      // Lessons
+      // 5. Darslar
       const qL = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
       const snapL = await getDocs(qL);
       setLessons(snapL.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // Groups for move
-      const user = auth.currentUser;
-      if (user) {
-        const qG = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-        const snapG = await getDocs(qG);
-        setAllGroups(snapG.docs.map(d => ({ id: d.id, ...d.data() })).filter(g => g.id !== groupId));
-      }
+      // 6. Ko'chirish uchun boshqa guruhlar (Faqat admin uchun kerak aslida)
+      const qG = query(collection(db, "groups"));
+      const snapG = await getDocs(qG);
+      setAllGroups(snapG.docs.map(d => ({ id: d.id, ...d.data() })).filter(g => g.id !== groupId));
+
     } catch (e) { console.error(e); }
   };
 
@@ -149,6 +160,7 @@ const GroupDetails = () => {
 
   // Handlers
   const handleDeleteGroup = async () => {
+    if (currentUserRole !== 'admin') return alert("Huquqingiz yo'q!");
     if (window.confirm(`"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?`)) {
       setLoading(true); await deleteDoc(doc(db, "groups", groupId)); navigate('/');
     }
@@ -158,7 +170,7 @@ const GroupDetails = () => {
     const lines = bulkText.split('\n').filter(l => l.includes(','));
     await Promise.all(lines.map(line => {
       const [name, email] = line.split(',').map(s => s.trim());
-      return addDoc(collection(db, "students"), { name, email, groupId, joinedAt: serverTimestamp(), gameXp: 0 });
+      return addDoc(collection(db, "students"), { name, email, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' });
     }));
     setBulkText(''); setIsAddStudentOpen(false); fetchData(); setLoading(false);
   };
@@ -167,7 +179,12 @@ const GroupDetails = () => {
     try { await updateDoc(doc(db, "students", selectedStudent.id), { groupId: targetGroupId }); setIsMoveModalOpen(false); fetchData(); alert("Ko'chirildi!"); } 
     catch (e) { alert(e.message); } finally { setLoading(false); }
   };
-  const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(); }};
+  
+  const handleDeleteStudent = async (id, name) => { 
+      if (window.confirm(`${name} o'chirilsinmi?`)) { 
+          await deleteDoc(doc(db, "students", id)); fetchData(); 
+      }
+  };
   
   const openGradeModal = async (student) => {
     setGradeScores({});
@@ -204,7 +221,7 @@ const GroupDetails = () => {
     try {
       for (const [tT, sc] of fS) {
         const eId = existingGradeDocs[tT];
-        if (eId) { if (window.confirm(`"${tT}" bahosi o'zgartirilsinmi?`)) await updateDoc(doc(db, "grades", eId), { score: Number(sc), date: serverTimestamp() }); } 
+        if (eId) { await updateDoc(doc(db, "grades", eId), { score: Number(sc), date: serverTimestamp() }); } 
         else { await addDoc(collection(db, "grades"), { studentId: selectedStudent.id, studentName: selectedStudent.name, groupId, score: Number(sc), comment: selectedLesson.topic, taskType: tT, lessonId: selectedLesson.id, date: serverTimestamp() }); }
       }
       setIsGradeModalOpen(false);
@@ -227,10 +244,14 @@ const GroupDetails = () => {
           <button onClick={() => navigate('/')} className="p-2 rounded-full bg-slate-50 hover:bg-slate-100 transition-colors"><ArrowLeft size={20}/></button>
           <div className="flex flex-col">
             <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none uppercase italic truncate max-w-[200px]">{groupName}</h1>
-            <p className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase">Teacher Panel</p>
+            <p className="text-[10px] font-bold text-indigo-600 tracking-widest uppercase">Classroom</p>
           </div>
         </div>
-        <button onClick={handleDeleteGroup} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={20}/></button>
+        
+        {/* Faqat ADMIN guruhni o'chira oladi */}
+        {currentUserRole === 'admin' && (
+            <button onClick={handleDeleteGroup} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={20}/></button>
+        )}
       </header>
 
       <div className="pt-24 px-4 sm:px-6 max-w-6xl mx-auto">
@@ -240,7 +261,11 @@ const GroupDetails = () => {
           <div className="lg:col-span-2 space-y-3">
              <div className="flex justify-between items-center px-1">
                 <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Students ({students.length})</h2>
-                <button onClick={() => setIsAddStudentOpen(true)} className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><UserPlus size={14}/> Add New</button>
+                
+                {/* FAQAT ADMIN QO'SHA OLADI */}
+                {currentUserRole === 'admin' && (
+                    <button onClick={() => setIsAddStudentOpen(true)} className="flex items-center gap-1 bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all"><UserPlus size={14}/> Add New</button>
+                )}
              </div>
              
              <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm">
@@ -293,26 +318,32 @@ const GroupDetails = () => {
                            </div>
                         </div>
 
-                        {/* ACTIONS - Mobile Friendly: Increased spacing and touch targets */}
+                        {/* ACTIONS - Faqat ADMIN delete va move qila oladi */}
                         <div className="flex items-center gap-0.5 shrink-0">
+                           {/* Grade (Baho) - Teacher va Admin uchun */}
                            <button onClick={() => openGradeModal(s)} className="p-2.5 text-indigo-400 bg-indigo-50 rounded-xl hover:bg-indigo-600 hover:text-white transition-all active:scale-95">
                               <Star size={18} fill="currentColor" className="opacity-80"/>
                            </button>
                            
-                           {/* Only show these on larger screens or make them smaller on mobile to save space if needed */}
-                           <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2.5 text-slate-300 hover:text-indigo-600 rounded-xl hover:bg-indigo-50 transition-all active:scale-95">
-                              <Share2 size={18}/>
-                           </button>
+                           {/* MOVE - Faqat Admin */}
+                           {currentUserRole === 'admin' && (
+                               <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2.5 text-slate-300 hover:text-indigo-600 rounded-xl hover:bg-indigo-50 transition-all active:scale-95" title="Move Group">
+                                    <Share2 size={18}/>
+                               </button>
+                           )}
                            
-                           <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2.5 text-slate-300 hover:text-red-500 rounded-xl hover:bg-red-50 transition-all active:scale-95">
-                              <Trash2 size={18}/>
-                           </button>
+                           {/* DELETE - Faqat Admin */}
+                           {currentUserRole === 'admin' && (
+                               <button onClick={() => handleDeleteStudent(s.id, s.name)} className="p-2.5 text-slate-300 hover:text-red-500 rounded-xl hover:bg-red-50 transition-all active:scale-95" title="Remove Student">
+                                    <Trash2 size={18}/>
+                               </button>
+                           )}
                         </div>
 
                      </div>
                    )})}
                    {students.length === 0 && (
-                      <div className="p-8 text-center text-slate-400 text-xs italic">O'quvchilar yo'q. Qo'shish tugmasini bosing.</div>
+                      <div className="p-8 text-center text-slate-400 text-xs italic">O'quvchilar yo'q.</div>
                    )}
                 </div>
              </div>
@@ -348,7 +379,6 @@ const GroupDetails = () => {
                       <div className="border-t border-slate-100 bg-slate-50/30 p-2 space-y-2">
                         {monthLessons.map((l) => (
                           <div key={l.id} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-colors">
-                            {/* MOBILE FIX: Buttons are always visible on mobile (opacity-100), hover only on desktop (lg:opacity-0) */}
                             <div className="absolute top-2 right-2 flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity z-10">
                               <button onClick={() => { setEditingLesson(l); setLessonTopic(l.topic); setLessonDate(l.date); setLessonTasks(l.tasks || [{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="p-1.5 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg hover:text-indigo-600 shadow-sm"><Edit2 size={14}/></button>
                               <button onClick={() => handleDeleteLesson(l.id)} className="p-1.5 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg hover:text-red-500 shadow-sm"><Trash2 size={14}/></button>
@@ -364,8 +394,6 @@ const GroupDetails = () => {
                                     {l.tasks?.map((t, i) => (
                                       <div key={i} className="flex items-center bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded text-[8px] text-slate-500 uppercase font-bold max-w-full">
                                         <span className="truncate max-w-[150px]">{typeof t === 'object' ? t.text : t}</span>
-                                        {/* Mobile delete task button fix */}
-                                        <button onClick={() => deleteTaskFromLesson(l.id, l.tasks, i)} className="ml-1 text-slate-300 hover:text-red-500 lg:opacity-0 lg:group-hover:opacity-100 opacity-100"><X size={8} /></button>
                                       </div>
                                     ))}
                                   </div>
@@ -383,9 +411,7 @@ const GroupDetails = () => {
         </div>
       </div>
 
-      {/* MODALS: Optimized for Mobile (Bottom Sheet Style) */}
-      
-      {/* ADD STUDENT MODAL */}
+      {/* MODALS - Qolganlari o'zgarishsiz qoladi, faqat Move Modal admin uchun chiqadi */}
       {isAddStudentOpen && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
@@ -403,14 +429,13 @@ const GroupDetails = () => {
             ) : (
               <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-40 px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-600" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
             )}
-            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0 }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active mb-safe">
+            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-100 tap-active mb-safe">
               {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Complete Registration'}
             </button>
           </div>
         </div>
       )}
 
-      {/* MOVE STUDENT MODAL */}
       {isMoveModalOpen && (
         <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMoveModalOpen(false)}></div>
@@ -436,12 +461,11 @@ const GroupDetails = () => {
         </div>
       )}
 
-      {/* GRADE MODAL (Full screen on mobile for better focus) */}
+      {/* Grade Modal va Add Lesson modal o'z joyida qoladi */}
       {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-white/60 backdrop-blur-xl animate-in fade-in duration-500" onClick={() => setIsGradeModalOpen(false)}></div>
           <div className="bg-white/95 border border-white shadow-2xl rounded-t-[2.5rem] sm:rounded-[2.5rem] w-full max-w-lg relative z-10 overflow-hidden flex flex-col h-[90vh] sm:h-auto sm:max-h-[90vh] animate-in slide-in-from-bottom duration-300">
-            
             <div className="p-4 bg-indigo-600 text-white flex items-center justify-between relative overflow-hidden shrink-0">
                <div className="flex items-center gap-3 relative z-10">
                   <div className="w-12 h-12 rounded-full border-2 border-white/20 overflow-hidden bg-white/10">
@@ -538,7 +562,6 @@ const GroupDetails = () => {
         </div>
       )}
 
-      {/* ADD LESSON MODAL */}
       {isAddLessonOpen && (
          <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => {setIsAddLessonOpen(false); setEditingLesson(null);}}></div>

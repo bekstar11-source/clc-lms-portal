@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
-  serverTimestamp, orderBy, addDoc 
+  serverTimestamp, orderBy, addDoc, getDoc // 👈 getDoc qo'shildi
 } from 'firebase/firestore';
 import { 
   X, Trash2, Edit2, Plus, Star,
@@ -31,14 +31,27 @@ const Assignments = () => {
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
 
-  // 1. GURUHLARNI YUKLASH
+  // 1. GURUHLARNI YUKLASH (Admin uchun moslashtirildi)
   useEffect(() => {
     const fetchGroups = async () => {
       try {
         const user = auth.currentUser;
         if (!user) return;
 
-        const q = query(collection(db, "groups"), where("teacherId", "==", user.uid));
+        // 1. Avval foydalanuvchi rolini tekshiramiz
+        const userRef = doc(db, "students", user.uid);
+        const userSnap = await getDoc(userRef);
+        const userData = userSnap.exists() ? userSnap.data() : {};
+        const role = userData.role;
+
+        let q;
+        // 2. Agar ADMIN bo'lsa hamma guruhni olamiz, TEACHER bo'lsa faqat o'zinikini
+        if (role === 'admin') {
+            q = query(collection(db, "groups"));
+        } else {
+            q = query(collection(db, "groups"), where("teacherId", "==", user.uid));
+        }
+
         const snap = await getDocs(q);
         const groupList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
