@@ -84,7 +84,7 @@ const Login = () => {
             <div className="inline-flex items-center justify-center space-x-3 mb-4">
                <div className="w-12 h-12 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-xl font-black italic shadow-lg shadow-indigo-200">CLC</div>
                <div className="text-left">
-                 <h1 className="text-xl font-black text-slate-800 leading-none">Academy</h1>
+                 <h1 className="text-xl font-black text-slate-800 leading-none">Academyuzun</h1>
                  <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-[0.25em]">Portal Login</p>
                </div>
             </div>
