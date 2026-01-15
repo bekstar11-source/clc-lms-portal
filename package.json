@@ -2,7 +2,7 @@
   "name": "web-pro",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://bekstar11-source.github.io/clc-lms-portal",
+  "homepage": "",
   "dependencies": {
     "@capacitor/android": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
