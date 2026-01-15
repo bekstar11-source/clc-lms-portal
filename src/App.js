@@ -13,8 +13,8 @@ import MobileNavbar from './components/MobileNavbar';
 import AdminPanel from './pages/AdminPanel';
 import SprintGame from './pages/SprintGame';
 import SentenceGame from './pages/SentenceGame';
-import GameHub from './pages/GameHub'; //
-import WordGame from './pages/WordGame'; // 👈 YANGI: WordGame import qilindi
+import GameHub from './pages/GameHub';
+import WordGame from './pages/WordGame';
 import AdminGameBuilder from './pages/AdminGameBuilder';
 import TeacherDashboard from './pages/TeacherDashboard'; 
 import GroupList from './pages/GroupList';             
@@ -82,7 +82,7 @@ function App() {
   return (
     <div className="flex min-h-screen bg-slate-50">
       
-      {/* SIDEBAR */}
+      {/* SIDEBAR (Faqat Admin/Teacher uchun) */}
       {showSidebar && <Sidebar role={role} />} 
 
       {/* ASOSIY KONTENT */}
@@ -105,13 +105,11 @@ function App() {
           <Route path="/groups" element={role === 'admin' ? <GroupList /> : <Navigate to="/" />} />
           <Route path="/admin/game-builder" element={role === 'admin' ? <AdminGameBuilder /> : <Navigate to="/" />} />
           
-          {/* 🔥 YANGI ROUTE */}
-          <Route path="/games" element={<GameHub />} />
-          
-          {/* 🔥 O'YINLAR ROUTELARI */}
-          <Route path="/sprint-game" element={<SprintGame />} />
-          <Route path="/word-game" element={<WordGame />} /> {/* 👈 YANGI */}
-          <Route path="/sentence-game" element={<SentenceGame />} />
+          {/* 🔥 O'YINLAR (Faqat Login qilganlar uchun) */}
+          <Route path="/games" element={user ? <GameHub /> : <Navigate to="/login" />} />
+          <Route path="/sprint-game" element={user ? <SprintGame /> : <Navigate to="/login" />} />
+          <Route path="/word-game" element={user ? <WordGame /> : <Navigate to="/login" />} />
+          <Route path="/sentence-game" element={user ? <SentenceGame /> : <Navigate to="/login" />} />
 
           {/* O'QITUVCHI VA ADMIN UMUMIY YO'LLARI */}
           <Route path="/group/:groupId" element={(role === 'teacher' || role === 'admin') ? <GroupDetails /> : <Navigate to="/" />} />
@@ -129,7 +127,7 @@ function App() {
         </Routes>
       </main>
 
-      {/* MOBILE MENU (Pastki menyu) */}
+      {/* MOBILE MENU (Faqat Admin/Teacher uchun pastki menyu) */}
       {showSidebar && <MobileNavbar role={role} />} 
 
     </div>
