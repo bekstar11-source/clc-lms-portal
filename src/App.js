@@ -11,9 +11,9 @@ import MobileNavbar from './components/MobileNavbar';
 
 // SAHIFALAR
 import AdminPanel from './pages/AdminPanel';
-import TeacherDashboard from './pages/TeacherDashboard'; // 👈 Yangilangan Dashboard
-import GroupList from './pages/GroupList';             // Admin uchun guruhlar ro'yxati
-import GroupDetails from './pages/GroupDetails';       // Guruh ichi
+import TeacherDashboard from './pages/TeacherDashboard'; 
+import GroupList from './pages/GroupList';             
+import GroupDetails from './pages/GroupDetails';       
 import StudentDashboard from './pages/StudentDashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -22,7 +22,8 @@ import StudentSettings from './pages/StudentSettings';
 
 // QO'SHIMCHA SAHIFALAR
 import Assignments from './pages/Assignments'; 
-import Grading from './pages/Grading';
+// import Grading from './pages/Grading'; // Grading endi kerak emas (yoki admin uchun qoldirsa bo'ladi)
+import Debtors from './pages/Debtors'; // 👈 YANGI SAHIFA
 
 function App() {
   const [user, setUser] = useState(null);
@@ -50,7 +51,7 @@ function App() {
                setRole(userData.role || 'student'); 
              }
           } else {
-             // Agar user bazada topilmasa (lekin authda bo'lsa), default student beramiz
+             // Agar user bazada topilmasa, default student beramiz
              setRole('student');
           }
         } catch (error) { 
@@ -92,26 +93,21 @@ function App() {
           {/* --- ASOSIY ROUTE (HOME) --- */}
           <Route path="/" element={
             !user ? <Navigate to="/login" /> :
-            role === 'admin' ? <AdminPanel /> :          // Admin -> AdminPanel
-            role === 'teacher' ? <TeacherDashboard /> :  // Teacher -> Yangi TeacherDashboard (E'lonlar + Guruhlar)
-            <StudentDashboard />                         // Student -> StudentDashboard
+            role === 'admin' ? <AdminPanel /> :          
+            role === 'teacher' ? <TeacherDashboard /> :  
+            <StudentDashboard />                         
           } />
 
           {/* ADMIN MAXSUS YO'LLARI */}
           <Route path="/admin" element={role === 'admin' ? <AdminPanel /> : <Navigate to="/" />} />
-          
-          {/* Admin "Guruhlar" menyusini bosganda hamma guruhlarni ko'rishi uchun */}
           <Route path="/groups" element={role === 'admin' ? <GroupList /> : <Navigate to="/" />} />
 
           {/* O'QITUVCHI VA ADMIN UMUMIY YO'LLARI */}
-          {/* 1. Guruh ichiga kirish */}
           <Route path="/group/:groupId" element={(role === 'teacher' || role === 'admin') ? <GroupDetails /> : <Navigate to="/" />} />
-          
-          {/* 2. Vazifalar umumiy sahifasi */}
           <Route path="/assignments" element={(role === 'teacher' || role === 'admin') ? <Assignments /> : <Navigate to="/" />} />
           
-          {/* 3. Baholash sahifasi */}
-          <Route path="/grading" element={(role === 'teacher' || role === 'admin') ? <Grading /> : <Navigate to="/" />} />
+          {/* 🔥 YANGI ROUTE: DEBTORS (QARZDORLAR) */}
+          <Route path="/debtors" element={(role === 'teacher' || role === 'admin') ? <Debtors /> : <Navigate to="/" />} />
 
           {/* SOZLAMALAR */}
           <Route path="/settings" element={

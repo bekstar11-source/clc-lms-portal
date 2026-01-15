@@ -1,8 +1,9 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, BookOpen, BarChart3, LogOut } from 'lucide-react'; // LogOut import qilindi
-import { auth } from '../firebase'; // Auth kerak
-import { signOut } from 'firebase/auth'; // signOut kerak
+// 🔥 BarChart3 ni olib tashlab, AlertCircle (Qarzdorlar uchun) qo'shdik
+import { LayoutDashboard, BookOpen, AlertCircle, LogOut } from 'lucide-react'; 
+import { auth } from '../firebase'; 
+import { signOut } from 'firebase/auth'; 
 
 const MobileNavbar = () => {
   const location = useLocation();
@@ -16,9 +17,22 @@ const MobileNavbar = () => {
   };
 
   const navItems = [
-    { path: '/', icon: <LayoutDashboard size={20} />, label: 'Guruhlar' }, // Iconlar kichraytirildi (20px)
-    { path: '/assignments', icon: <BookOpen size={20} />, label: 'Vazifalar' },
-    { path: '/grading', icon: <BarChart3 size={20} />, label: 'Jurnal' },
+    { 
+      path: '/', 
+      icon: <LayoutDashboard size={20} />, 
+      label: 'Guruhlar' 
+    }, 
+    { 
+      path: '/assignments', 
+      icon: <BookOpen size={20} />, 
+      label: 'Vazifalar' 
+    },
+    // 🔥 O'ZGARISH SHU YERDA: Jurnal -> Qarzdorlar
+    { 
+      path: '/debtors', 
+      icon: <AlertCircle size={20} />, 
+      label: 'Qarzdorlar' 
+    },
   ];
 
   return (
@@ -26,16 +40,22 @@ const MobileNavbar = () => {
       <div className="flex justify-between items-center max-w-sm mx-auto">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
+          
+          // 🔥 Qarzdorlar tugmasi aktiv bo'lganda qizilroq, boshqalari indigo bo'lishi uchun mantiq
+          const isDebtorTab = item.path === '/debtors';
+          const activeBg = isDebtorTab ? 'bg-red-500 shadow-red-200' : 'bg-indigo-600 shadow-indigo-200';
+          const activeText = isDebtorTab ? 'text-red-500' : 'text-indigo-600';
+
           return (
             <Link 
               key={item.path} 
               to={item.path} 
               className="flex flex-col items-center gap-1 p-2 min-w-[64px]"
             >
-              <div className={`p-1.5 rounded-xl transition-all duration-300 ${isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 translate-y-[-4px]' : 'text-slate-400'}`}>
+              <div className={`p-1.5 rounded-xl transition-all duration-300 ${isActive ? `${activeBg} text-white shadow-lg translate-y-[-4px]` : 'text-slate-400'}`}>
                 {item.icon}
               </div>
-              <span className={`text-[9px] font-bold tracking-wide ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>
+              <span className={`text-[9px] font-bold tracking-wide ${isActive ? activeText : 'text-slate-400'}`}>
                 {item.label}
               </span>
             </Link>

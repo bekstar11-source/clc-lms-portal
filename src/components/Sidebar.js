@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, LogOut, ShieldCheck, 
-  Settings, ClipboardList, GraduationCap, Sparkles 
+  Settings, ClipboardList, AlertCircle, Sparkles 
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -41,7 +41,7 @@ const Sidebar = ({ role }) => {
   // Avatar uchun URL
   const avatarUrl = `https://api.dicebear.com/7.x/notionists/svg?seed=${avatarSeed}&backgroundColor=c0aede,d1d4f9,b6e3f4`;
 
-  // Link stillari (Zerikarli qoradan voz kechdik)
+  // Link stillari (Kreativ dizayn)
   const activeLink = "relative flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200 transition-all scale-105";
   const normalLink = "flex items-center gap-3 px-4 py-3.5 rounded-2xl text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all font-medium";
 
@@ -88,10 +88,11 @@ const Sidebar = ({ role }) => {
               <span className="font-bold text-xs uppercase tracking-wide">Vazifalar</span>
             </NavLink>
 
+            {/* 🔥 O'ZGARISH: GRADING O'RNIGA DEBTORS (QARZDORLAR) */}
             {role === 'teacher' && (
-              <NavLink to="/grading" className={({ isActive }) => isActive ? activeLink : normalLink}>
-                <GraduationCap size={20} />
-                <span className="font-bold text-xs uppercase tracking-wide">Baholash</span>
+              <NavLink to="/debtors" className={({ isActive }) => isActive ? activeLink : normalLink}>
+                <AlertCircle size={20} />
+                <span className="font-bold text-xs uppercase tracking-wide">Qarzdorlar</span>
               </NavLink>
             )}
           </div>

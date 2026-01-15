@@ -7,7 +7,11 @@ import { Loader2, GraduationCap } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
-  const [name, setName] = useState('');
+  
+  // 1. O'ZGARISH: Ism va Familiya uchun alohida statelar
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -17,25 +21,29 @@ const Register = () => {
     setLoading(true);
 
     try {
-      // 1. AUTHENTICATION: Foydalanuvchi yaratish (Login/Parol)
+      // 2. O'ZGARISH: Ism va Familiyani birlashtirib olish
+      // trim() bo'sh joylarni olib tashlaydi
+      const fullName = `${firstName.trim()} ${lastName.trim()}`;
+
+      // 1. AUTHENTICATION
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // 2. DATABASE: Ma'lumotlarni saqlash (ISM, ROLE, GROUP)
-      // Bu qism juda muhim!
+      // 2. DATABASE
       await setDoc(doc(db, "students", user.uid), {
-        name: name,
+        name: fullName,        // Bazaga to'liq ism ketadi
+        firstName: firstName.trim(), // Alohida ham saqlab qo'yish foydali (ixtiyoriy)
+        lastName: lastName.trim(),   // Alohida ham saqlab qo'yish foydali (ixtiyoriy)
         email: email,
-        role: 'student',       // Rol avtomatik student bo'ladi
-        groupId: null,         // Hozircha guruhsiz (Admin biriktiradi)
+        role: 'student',
+        groupId: null,
         status: 'active',
-        gameXp: 0,             // O'yin ochkosi
+        gameXp: 0,
         joinedAt: serverTimestamp()
       });
 
-      // 3. Muvaffaqiyatli bo'lsa kirish sahifasiga o'tish
       alert("Ro'yxatdan o'tdingiz! Tizimga kiring.");
-      navigate('/login'); // Yoki to'g'ridan-to'g'ri '/' ga
+      navigate('/login');
       
     } catch (error) {
       console.error("Xatolik:", error);
@@ -58,16 +66,31 @@ const Register = () => {
         </div>
 
         <form onSubmit={handleRegister} className="space-y-4">
-          <div>
-            <input 
-              type="text" 
-              required
-              placeholder="Ism Familiya" 
-              className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+          
+          {/* 3. O'ZGARISH: Inputlarni ikkiga ajratish */}
+          <div className="flex gap-3">
+            <div className="w-1/2">
+              <input 
+                type="text" 
+                required
+                placeholder="Ismingiz" 
+                className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+            </div>
+            <div className="w-1/2">
+              <input 
+                type="text" 
+                required
+                placeholder="Familiyangiz" 
+                className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+              />
+            </div>
           </div>
+
           <div>
             <input 
               type="email" 
@@ -109,4 +132,4 @@ const Register = () => {
   );
 };
 
-export default Register;
+export default Register;  

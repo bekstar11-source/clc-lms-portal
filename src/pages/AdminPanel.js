@@ -143,8 +143,33 @@ const AdminPanel = () => {
     try { const docRef = await addDoc(collection(db, "groups"), { name: newGroupName, teacherId: null, createdAt: serverTimestamp() }); setGroups([...groups, { id: docRef.id, name: newGroupName, teacherId: null }]); setNewGroupName(''); } catch(e) { alert(e.message); }
   };
   const deleteGroup = async (id) => { if(window.confirm("O'chirilsinmi?")) { await deleteDoc(doc(db, "groups", id)); setGroups(prev=>prev.filter(g=>g.id!==id)); }};
+  // ✅ BU YANGI KODNI QO'YING:
   const assignGroupToStudent = async (uid, gid) => { 
-      setProcessingId(uid); try { await updateDoc(doc(db, "students", uid), { groupId: gid || null }); setUsers(p=>p.map(u=>u.id===uid?{...u, groupId: gid||null}:u)); } catch(e){alert(e.message)} finally{setProcessingId(null)}
+      setProcessingId(uid); 
+      try { 
+          // 1. Agar gid bo'sh bo'lsa null, aks holda bo'sh joylarni (space) olib tashlaymiz
+          const finalGroupId = gid ? gid.trim() : null;
+
+          // 2. Bazaga yozish: groupId va status ni 'active' qilish
+          await updateDoc(doc(db, "students", uid), { 
+              groupId: finalGroupId,
+              status: 'active' // 👈 MUHIM: O'quvchi guruhda ko'rinishi uchun status active bo'lishi kerak
+          }); 
+
+          // 3. Ekranni yangilash
+          setUsers(p => p.map(u => u.id === uid ? { 
+              ...u, 
+              groupId: finalGroupId,
+              status: 'active' 
+          } : u)); 
+      } 
+      catch(e){
+          console.error("Guruh biriktirishda xato:", e);
+          alert(e.message); 
+      } 
+      finally{
+          setProcessingId(null);
+      }
   };
   const assignTeacherToGroup = async (gid, tid) => {
       setProcessingId(gid); try { await updateDoc(doc(db, "groups", gid), { teacherId: tid }); setGroups(p=>p.map(g=>g.id===gid?{...g, teacherId: tid}:g)); } catch(e){alert(e.message)} finally{setProcessingId(null)}
