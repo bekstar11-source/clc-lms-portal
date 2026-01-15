@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, LogOut, ShieldCheck, 
-  Settings, ClipboardList, AlertCircle, Sparkles 
+  Settings, ClipboardList, AlertCircle, Sparkles,
+  Gamepad2, Zap 
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -38,17 +39,16 @@ const Sidebar = ({ role }) => {
     }
   };
 
-  // Avatar uchun URL
   const avatarUrl = `https://api.dicebear.com/7.x/notionists/svg?seed=${avatarSeed}&backgroundColor=c0aede,d1d4f9,b6e3f4`;
 
-  // Link stillari (Kreativ dizayn)
+  // Link stillari
   const activeLink = "relative flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200 transition-all scale-105";
   const normalLink = "flex items-center gap-3 px-4 py-3.5 rounded-2xl text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-all font-medium";
 
   return (
     <div className="hidden md:flex w-72 bg-white border-r border-slate-100 flex-col fixed h-screen z-50 shadow-2xl shadow-slate-200/50">
       
-      {/* 1. LOGO QISMI (CLC) */}
+      {/* 1. LOGO QISMI */}
       <div className="h-28 flex flex-col justify-center px-8 border-b border-dashed border-slate-100">
         <div className="flex items-center gap-2">
             <div className="w-10 h-10 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 rotate-3">
@@ -65,11 +65,17 @@ const Sidebar = ({ role }) => {
       <nav className="flex-1 py-6 px-4 space-y-2 overflow-y-auto custom-scrollbar">
         
         {role === 'admin' && (
-          <div className="mb-6">
+          <div className="mb-6 space-y-2">
             <p className="px-4 text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">Admin Zone</p>
-            <NavLink to="/admin" className={({ isActive }) => isActive ? "flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-slate-800 text-white shadow-xl" : normalLink}>
+            
+            <NavLink to="/admin" end className={({ isActive }) => isActive ? "flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-slate-800 text-white shadow-xl" : normalLink}>
               <ShieldCheck size={20} />
               <span className="font-bold text-xs uppercase tracking-wide">Boshqaruv</span>
+            </NavLink>
+
+            <NavLink to="/admin/game-builder" className={({ isActive }) => isActive ? activeLink : normalLink}>
+              <Gamepad2 size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">O'yin Sozlamalari</span>
             </NavLink>
           </div>
         )}
@@ -88,7 +94,6 @@ const Sidebar = ({ role }) => {
               <span className="font-bold text-xs uppercase tracking-wide">Vazifalar</span>
             </NavLink>
 
-            {/* 🔥 O'ZGARISH: GRADING O'RNIGA DEBTORS (QARZDORLAR) */}
             {role === 'teacher' && (
               <NavLink to="/debtors" className={({ isActive }) => isActive ? activeLink : normalLink}>
                 <AlertCircle size={20} />
@@ -98,6 +103,27 @@ const Sidebar = ({ role }) => {
           </div>
         )}
 
+        {/* 🔥 YANGI: GAME ZONE BO'LIMI (TUZATILGAN) */}
+        <div className="space-y-2 mt-6">
+            <p className="px-4 text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">Game Zone</p>
+            
+            {/* Word Scramble */}
+            <NavLink to="/word-game" className={({ isActive }) => isActive ? activeLink : normalLink}>
+              <Gamepad2 size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">Word Scramble</span>
+            </NavLink>
+
+            {/* English Sprint - TUZATILGAN QISM */}
+            <NavLink to="/sprint-game" className={({ isActive }) => isActive ? activeLink : normalLink}>
+              {({ isActive }) => (
+                <>
+                  <Zap size={20} className={isActive ? "text-yellow-300 fill-yellow-300" : "text-slate-400"} />
+                  <span className="font-bold text-xs uppercase tracking-wide">English Sprint</span>
+                </>
+              )}
+            </NavLink>
+        </div>
+
         <div className="pt-6 mt-6 border-t border-dashed border-slate-100 space-y-2">
             <NavLink to="/settings" className={({ isActive }) => isActive ? "flex items-center gap-3 px-4 py-3.5 rounded-2xl bg-slate-100 text-slate-800 font-bold" : normalLink}>
               <Settings size={20} />
@@ -106,7 +132,7 @@ const Sidebar = ({ role }) => {
         </div>
       </nav>
 
-      {/* 3. USER PROFILE (PASTDA) */}
+      {/* 3. USER PROFILE */}
       <div className="p-4 m-4 bg-slate-50 rounded-2xl border border-slate-100">
         <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-full bg-white border border-slate-200 overflow-hidden shrink-0">

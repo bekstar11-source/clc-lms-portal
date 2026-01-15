@@ -1,371 +1,261 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Trophy, Zap, Gamepad2, Heart, Crown, Rocket, 
-  Timer, Star, Award, BookOpen, RefreshCcw, Loader2 
+  Trophy, RefreshCw, ArrowRight, Home, 
+  BrainCircuit, Shuffle, Loader2 
 } from 'lucide-react';
+import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { useNavigate } from 'react-router-dom';
 
-// --- IMPORTLAR ---
-import { db } from '../firebase'; 
-import { doc, updateDoc, increment, collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
-import { WORD_BANK } from '../data/wordBank'; 
+const WordGame = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [gameData, setGameData] = useState(null);
+  const [totalXp, setTotalXp] = useState(0);
 
-const WordGame = ({ student }) => {
-  // --- STATE ---
-  const [gameState, setGameState] = useState('START'); 
-  const [currentQuestion, setCurrentQuestion] = useState(null);
+  // Game State
+  const [gameState, setGameState] = useState('menu');
+  const [level, setLevel] = useState(null);
+  const [category, setCategory] = useState(null);
   
-  const [gameScore, setGameScore] = useState(0);
-  const [gameXp, setGameXp] = useState(0);
-  const [gameStreak, setGameStreak] = useState(0);
-  const [gameLives, setGameLives] = useState(3);
-  const [gameTimeLeft, setGameTimeLeft] = useState(10);
-  
-  const [gameFeedback, setGameFeedback] = useState(null); 
-  const [selectedDifficulty, setSelectedDifficulty] = useState('elementary');
-  
-  const [leaders, setLeaders] = useState([]);
-  const [loadingLeaders, setLoadingLeaders] = useState(true);
+  // 🔥 YANGI STATE: Aralashtirilgan so'zlar ro'yxati
+  const [wordQueue, setWordQueue] = useState([]); 
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-  // --- GLOBAL REYTINGNI YUKLASH (TOP 5) ---
+  const [currentWordObj, setCurrentWordObj] = useState(null);
+  const [scrambledLetters, setScrambledLetters] = useState([]);
+  const [userGuess, setUserGuess] = useState([]);
+  const [feedback, setFeedback] = useState(null);
+  const [streak, setStreak] = useState(0);
+
   useEffect(() => {
-    const fetchLeaders = async () => {
-      try {
-        // Hamma o'quvchilarni XP bo'yicha saralab, birinchi 5 tasini olamiz
-        const q = query(
-          collection(db, "students"), 
-          orderBy("gameXp", "desc"), 
-          limit(5)
-        );
-        
-        const querySnapshot = await getDocs(q);
-        
-        const globalLeaders = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          gameXp: doc.data().gameXp || 0
-        }));
-
-        setLeaders(globalLeaders);
-
-      } catch (error) {
-        console.error("Reyting xatolik:", error);
-      } finally {
-        setLoadingLeaders(false);
-      }
+    const initGame = async () => {
+        const user = auth.currentUser;
+        if (!user) return;
+        try {
+            const gameRef = doc(db, "games", "scramble");
+            const gameSnap = await getDoc(gameRef);
+            if (gameSnap.exists()) setGameData(gameSnap.data());
+            
+            const studentRef = doc(db, "students", user.uid);
+            onSnapshot(studentRef, (docSnap) => {
+                if(docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
+            });
+        } catch (e) { console.error(e); } finally { setLoading(false); }
     };
-    
-    if (gameState === 'START' || gameState === 'GAMEOVER') {
-      fetchLeaders();
-    }
-  }, [gameState]); 
+    initGame();
+  }, []);
 
-  // --- SAVOL GENERATSIYA ---
-  const generateGameQuestion = useCallback(() => {
-    const pool = WORD_BANK[selectedDifficulty];
-    let randomIndex = Math.floor(Math.random() * pool.length);
-    
-    if (currentQuestion && pool.length > 1) {
-      while (pool[randomIndex].word === currentQuestion.word) {
-        randomIndex = Math.floor(Math.random() * pool.length);
-      }
+  // 🔥 SHUFFLE ALGORITMI
+  const shuffleArray = (array) => {
+    let arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-    
-    const question = pool[randomIndex];
-    const shuffledOptions = [...question.options].sort(() => Math.random() - 0.5);
-    
-    setCurrentQuestion({ ...question, options: shuffledOptions });
-    setGameTimeLeft(10); 
-    setGameFeedback(null);
-  }, [selectedDifficulty, currentQuestion]);
-
-  // --- O'YINNI BOSHLASH ---
-  const startWordGame = (diff) => {
-    setSelectedDifficulty(diff);
-    setGameScore(0);
-    setGameXp(0);
-    setGameStreak(0);
-    setGameLives(3);
-    setGameState('PLAYING');
-    
-    const pool = WORD_BANK[diff];
-    const question = pool[Math.floor(Math.random() * pool.length)];
-    const shuffledOptions = [...question.options].sort(() => Math.random() - 0.5);
-    setCurrentQuestion({ ...question, options: shuffledOptions });
-    setGameTimeLeft(10);
-    setGameFeedback(null);
+    return arr;
   };
 
-  // --- TIMER ---
-  useEffect(() => {
-    let timer;
-    if (gameState === 'PLAYING' && gameTimeLeft > 0 && !gameFeedback) {
-      timer = setInterval(() => {
-        setGameTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (gameTimeLeft === 0 && gameState === 'PLAYING') {
-      handleGameAnswer(null);
-    }
-    return () => clearInterval(timer);
-  }, [gameTimeLeft, gameState, gameFeedback]);
-
-  // --- XP HISOBLASH LOGIKASI ---
-  const handleGameAnswer = (selectedOption) => {
-    if (gameFeedback) return;
-
-    const isCorrect = selectedOption === currentQuestion.correct;
-    
-    if (isCorrect) {
-      let basePoints = 0;
-      if (selectedDifficulty === 'elementary') basePoints = 10;       
-      else if (selectedDifficulty === 'preIntermediate') basePoints = 30; 
-      else if (selectedDifficulty === 'advanced') basePoints = 60;    
-
-      const bonusMultiplier = selectedDifficulty === 'advanced' ? 3 : (selectedDifficulty === 'preIntermediate' ? 2 : 1);
-      const timeBonus = gameTimeLeft * bonusMultiplier; 
-      const streakBonus = gameStreak * bonusMultiplier;
-      const earnedXp = basePoints + timeBonus + streakBonus;
+  const startGame = (lvlKey, catKey) => {
+      setLevel(lvlKey);
+      setCategory(catKey);
       
-      setGameFeedback('correct');
-      setGameScore(prev => prev + 1);
-      setGameXp(prev => prev + earnedXp);
-      setGameStreak(prev => prev + 1);
+      // 1. So'zlarni olamiz
+      const originalWords = gameData.levels[lvlKey].categories[catKey].words;
+      if (!originalWords || originalWords.length === 0) return alert("So'zlar yo'q!");
+
+      // 2. Ularni aralashtiramiz
+      const shuffled = shuffleArray(originalWords);
       
-      setTimeout(() => generateGameQuestion(), 800);
-    } else {
-      setGameFeedback('wrong');
-      setGameLives(prev => prev - 1);
-      setGameStreak(0);
+      // 3. Queue ga joylaymiz va o'yinni boshlaymiz
+      setWordQueue(shuffled);
+      setCurrentIndex(0);
+      setGameState('playing');
       
-      if (gameLives <= 1) {
-        setTimeout(() => handleGameOver(), 1000);
+      // Birinchi so'zni yuklash
+      loadWord(shuffled[0]);
+  };
+
+  const loadWord = (wordObj) => {
+      setCurrentWordObj(wordObj);
+      
+      const letters = wordObj.word.split('').map((l, i) => ({ id: i, char: l, status: 'available' }));
+      // Harflarni aralashtirish
+      for (let i = letters.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [letters[i], letters[j]] = [letters[j], letters[i]];
+      }
+      setScrambledLetters(letters);
+      setUserGuess([]);
+      setFeedback(null);
+  };
+
+  const nextWord = () => {
+      const nextIdx = currentIndex + 1;
+      if (nextIdx < wordQueue.length) {
+          setCurrentIndex(nextIdx);
+          loadWord(wordQueue[nextIdx]);
       } else {
-        setTimeout(() => generateGameQuestion(), 1000);
+          // O'yin tugadi (Barcha so'zlar topildi)
+          setGameState('menu'); 
+          alert("Ajoyib! Barcha so'zlarni topdingiz.");
       }
-    }
   };
 
-  const handleGameOver = async () => {
-    setGameState('GAMEOVER');
-    if (student && student.id && gameXp > 0) {
-      try {
-        const studentRef = doc(db, "students", student.id);
-        await updateDoc(studentRef, {
-          gameXp: increment(gameXp)
-        });
-      } catch (error) {
-        console.error("XP saqlashda xatolik:", error);
+  const handleLetterClick = (letter) => {
+      if(feedback) return;
+      setScrambledLetters(prev => prev.map(l => l.id === letter.id ? {...l, status: 'used'} : l));
+      setUserGuess(prev => [...prev, letter]);
+  };
+
+  const handleGuessClick = (letter, index) => {
+      if(feedback) return;
+      const newGuess = userGuess.filter((_, i) => i !== index);
+      setUserGuess(newGuess);
+      setScrambledLetters(prev => prev.map(l => l.id === letter.id ? {...l, status: 'available'} : l));
+  };
+
+  const checkAnswer = async () => {
+      const word = userGuess.map(l => l.char).join('');
+      if(word === currentWordObj.word) {
+          setFeedback('correct');
+          setStreak(s => s + 1);
+          
+          const user = auth.currentUser;
+          const reward = gameData.levels[level].xpReward || 10;
+          if(user) await updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) });
+          
+          setTimeout(nextWord, 1000); // 🔥 Keyingi so'zga o'tish
+      } else {
+          setFeedback('wrong');
+          setStreak(0);
+          setTimeout(() => {
+              setFeedback(null);
+              setUserGuess([]);
+              setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
+          }, 800);
       }
-    }
   };
 
-  const getDifficultyStyles = (diff) => {
-    switch(diff) {
-      case 'advanced': return { label: 'IELTS Expert (60 XP)', color: 'text-purple-600 bg-purple-100', icon: <Crown size={20} /> };
-      case 'preIntermediate': return { label: 'Intermediate (30 XP)', color: 'text-blue-600 bg-blue-100', icon: <Rocket size={20} /> };
-      default: return { label: 'Elementary (10 XP)', color: 'text-emerald-600 bg-emerald-100', icon: <BookOpen size={20} /> };
-    }
+  const shuffleCurrent = () => {
+      const unused = scrambledLetters.filter(l => l.status === 'available');
+      for (let i = unused.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [unused[i], unused[j]] = [unused[j], unused[i]];
+      }
+      const newLetters = scrambledLetters.map(l => l.status === 'used' ? l : unused.shift());
+      setScrambledLetters(newLetters);
   };
 
-  const getAvatarUrl = (seed) => {
-     const cleanSeed = seed ? seed.replace('bot_', '') : 'User';
-     return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc`;
-  };
+  if(loading) return <div className="h-screen flex items-center justify-center bg-slate-900"><Loader2 className="animate-spin text-indigo-500"/></div>;
 
-  return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
-      <div className="max-w-md mx-auto w-full bg-white rounded-[2rem] md:rounded-[2.5rem] shadow-xl overflow-hidden border border-slate-200 h-full flex flex-col">
-        
-        {/* SCORE BOARD */}
-        {gameState === 'PLAYING' && (
-          <div className="bg-indigo-600 p-4 md:p-6 text-white animate-in slide-in-from-top duration-500 shrink-0">
-            <div className="flex justify-between items-center mb-4 md:mb-6">
-              <div className="flex flex-col">
-                <span className="text-[9px] md:text-[10px] text-indigo-200 font-black uppercase tracking-widest text-center">Natija</span>
-                <div className="flex items-center gap-2">
-                  <Trophy size={18} className="text-yellow-400 md:w-5 md:h-5" />
-                  <span className="text-xl md:text-2xl font-black">{gameScore}</span>
-                </div>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] md:text-[10px] text-indigo-200 font-black uppercase tracking-widest text-center">Jonlar</span>
-                <div className="flex items-center gap-1 mt-1">
-                  {[...Array(3)].map((_, i) => (
-                    <Heart 
-                      key={i} 
-                      size={18} 
-                      fill={i < gameLives ? "#fb7185" : "transparent"} 
-                      className={`md:w-6 md:h-6 ${i < gameLives ? "text-rose-400" : "text-indigo-400 transition-all"}`}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex justify-between items-center mb-2 text-[9px] md:text-[10px] font-black uppercase tracking-tighter">
-              <div className="flex items-center gap-1">
-                <Timer size={12} className="text-indigo-200 md:w-4 md:h-4" />
-                <span>Vaqt qoldi</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Zap size={12} className="text-orange-400 animate-pulse md:w-4 md:h-4" />
-                <span>Streak: {gameStreak}</span>
-              </div>
-            </div>
-            <div className="relative h-2 md:h-3 bg-indigo-900/40 rounded-full overflow-hidden border border-indigo-500/30">
-              <div 
-                className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-linear ${
-                  gameTimeLeft < 4 ? 'bg-rose-500' : 'bg-emerald-400'
-                }`}
-                style={{ width: `${(gameTimeLeft / 10) * 100}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
+  // --- MENU UI ---
+  if(gameState === 'menu') {
+      return (
+        <div className="min-h-screen bg-slate-900 p-4 pb-24 text-white font-sans">
+           <div className="flex justify-between items-center mb-6">
+               <button onClick={()=>navigate('/games')} className="p-2 bg-slate-800 rounded-full text-slate-400"><Home size={20}/></button>
+               <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
+                   <Trophy className="text-yellow-400" size={16}/><span className="font-bold text-yellow-400">{totalXp}</span>
+               </div>
+           </div>
+           
+           <div className="text-center mb-10">
+               <div className="w-20 h-20 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
+                   <BrainCircuit size={40} className="text-indigo-400"/>
+               </div>
+               <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">WORD SCRAMBLE</h1>
+           </div>
 
-        {/* START SCREEN */}
-        {gameState === 'START' && (
-        <div className="p-4 md:p-8 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-            <div className="text-center py-2 md:py-6 animate-in fade-in zoom-in duration-500 flex-1 flex flex-col justify-center">
-            
-            <div className="w-14 h-14 md:w-20 md:h-20 bg-indigo-50 rounded-2xl md:rounded-3xl flex items-center justify-center mx-auto mb-2 md:mb-4 transform rotate-6 border border-indigo-100 shrink-0">
-                <Gamepad2 className="text-indigo-600 w-7 h-7 md:w-10 md:h-10" />
-            </div>
-            
-            <h1 className="text-xl md:text-2xl font-black text-slate-800 mb-1 tracking-tight shrink-0">LexiQuest</h1>
-            <p className="text-slate-500 mb-4 leading-relaxed font-medium text-xs shrink-0">
-                Darajani tanlang va XP yig'ing!
-            </p>
-            
-            <div className="space-y-2 shrink-0">
-                <button onClick={() => startWordGame('elementary')} className="w-full flex items-center justify-between bg-emerald-50 hover:bg-emerald-100 p-3 rounded-2xl border-2 border-emerald-100 transition-all group active:scale-95">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-xl text-emerald-600 shadow-sm"><BookOpen size={18} /></div>
-                    <div className="text-left"><h3 className="font-black text-emerald-900 leading-none text-xs">Elementary</h3><p className="text-[9px] text-emerald-700 mt-0.5">10 XP har bir so'zga</p></div>
-                </div>
-                </button>
-
-                <button onClick={() => startWordGame('preIntermediate')} className="w-full flex items-center justify-between bg-blue-50 hover:bg-blue-100 p-3 rounded-2xl border-2 border-blue-100 transition-all group active:scale-95">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-xl text-blue-600 shadow-sm"><Rocket size={18} /></div>
-                    <div className="text-left"><h3 className="font-black text-blue-900 leading-none text-xs">Intermediate</h3><p className="text-[9px] text-blue-700 mt-0.5">30 XP har bir so'zga</p></div>
-                </div>
-                </button>
-
-                <button onClick={() => startWordGame('advanced')} className="w-full flex items-center justify-between bg-purple-50 hover:bg-purple-100 p-3 rounded-2xl border-2 border-purple-100 transition-all group active:scale-95">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white rounded-xl text-purple-600 shadow-sm"><Crown size={18} /></div>
-                    <div className="text-left"><h3 className="font-black text-purple-900 leading-none text-xs">IELTS Expert</h3><p className="text-[9px] text-purple-700 mt-0.5">60 XP har bir so'zga</p></div>
-                </div>
-                </button>
-            </div>
-
-            {/* LEADERBOARD - TOP 5 */}
-            <div className="mt-4 pt-4 border-t border-slate-100 shrink-0">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Global Leaderboard (Top 5)</h4>
-                
-                {loadingLeaders ? (
-                    <div className="flex justify-center"><Loader2 className="animate-spin text-indigo-400 w-5 h-5" /></div>
-                ) : (
-                    <div className="flex justify-center gap-2 md:gap-3 flex-wrap">
-                        {leaders.length > 0 ? leaders.map((leader, i) => (
-                        <div key={leader.id} className="flex flex-col items-center">
-                            <div className="relative">
-                            <div className={`w-8 h-8 md:w-9 md:h-9 rounded-full border-2 overflow-hidden ${i===0 ? 'border-amber-400' : i===1 ? 'border-slate-300' : i===2 ? 'border-orange-400' : 'border-slate-100'}`}>
-                                <img src={getAvatarUrl(leader.avatarSeed || leader.name)} alt="av" className="w-full h-full object-cover"/>
-                            </div>
-                            <div className={`absolute -bottom-1 -right-1 w-3 h-3 md:w-3.5 md:h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ${i===0 ? 'bg-amber-400' : i===1 ? 'bg-slate-400' : i===2 ? 'bg-orange-400' : 'bg-slate-300'}`}>{i+1}</div>
-                            </div>
-                            <span className="text-[7px] md:text-[8px] font-black text-slate-600 mt-1 max-w-[35px] truncate">{leader.name.split(' ')[0]}</span>
-                            <span className="text-[7px] font-bold text-indigo-500">{leader.gameXp || 0} XP</span>
-                        </div>
-                        )) : (
-                        <p className="text-xs text-slate-400 italic">Hali hech kim o'ynamadi</p>
-                        )}
-                    </div>
-                )}
-            </div>
-            </div>
+           <div className="space-y-8">
+               {gameData && gameData.levels && Object.keys(gameData.levels).map(lvlKey => (
+                   <div key={lvlKey}>
+                       <div className="flex items-center justify-between mb-3 ml-2">
+                           <h3 className="font-black text-slate-400 uppercase tracking-widest text-xs">{gameData.levels[lvlKey].title}</h3>
+                           <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-yellow-400 font-bold border border-slate-700">+{gameData.levels[lvlKey].xpReward} XP</span>
+                       </div>
+                       <div className="grid grid-cols-2 gap-3">
+                           {gameData.levels[lvlKey].categories && Object.keys(gameData.levels[lvlKey].categories).map(catKey => (
+                               <button key={catKey} onClick={()=>startGame(lvlKey, catKey)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700 hover:border-indigo-500 transition-all text-left group active:scale-95 shadow-lg">
+                                   <div className="font-bold text-white mb-1 truncate">{gameData.levels[lvlKey].categories[catKey].title}</div>
+                                   <div className="text-xs text-slate-500 group-hover:text-indigo-400 flex items-center gap-1">Boshlash <ArrowRight size={10}/></div>
+                               </button>
+                           ))}
+                       </div>
+                   </div>
+               ))}
+           </div>
         </div>
-        )}
+      )
+  }
 
-        {/* GAME SCREEN */}
-        {gameState === 'PLAYING' && currentQuestion && (
-          <div className="p-4 md:p-8 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-            <div className="animate-in fade-in zoom-in duration-300 flex-1 flex flex-col justify-center">
-              <div className="flex justify-center mb-4 shrink-0">
-                <span className={`flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${getDifficultyStyles(selectedDifficulty).color}`}>
-                  {React.cloneElement(getDifficultyStyles(selectedDifficulty).icon, { className: "w-4 h-4" })}
-                  {getDifficultyStyles(selectedDifficulty).label}
-                </span>
+  // --- PLAYING UI ---
+  return (
+      <div className="flex flex-col min-h-screen bg-slate-900 text-white font-sans touch-manipulation">
+          <div className="flex justify-between items-center p-4">
+              <button onClick={()=>setGameState('menu')} className="p-2 bg-slate-800 rounded-full text-slate-400"><Home size={20}/></button>
+              <div className="flex items-center gap-1">
+                 {/* Progress indicator */}
+                 <span className="text-xs font-bold text-slate-500 mr-2">{currentIndex + 1} / {wordQueue.length}</span>
+                 <span className={`font-black text-xl ${streak > 0 ? 'text-orange-400' : 'text-slate-600'}`}>{streak}🔥</span>
               </div>
-
-              <div className="text-center mb-6 shrink-0">
-                <h2 className="text-2xl font-black text-slate-800 mb-1 tracking-tight break-words">{currentQuestion.word}</h2>
-                <p className="text-slate-400 text-xs font-medium">To'g'ri tarjimani tanlang:</p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 shrink-0">
-                {currentQuestion.options.map((option, index) => {
-                  let buttonClass = "group relative w-full py-3 px-4 rounded-xl border-2 font-bold transition-all flex justify-between items-center text-xs select-none active:scale-[0.98] ";
-                  if (gameFeedback) {
-                    if (option === currentQuestion.correct) buttonClass += "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm ";
-                    else buttonClass += "border-slate-100 bg-white text-slate-300 opacity-50 ";
-                  } else {
-                    buttonClass += "border-slate-100 bg-white hover:border-indigo-500 hover:bg-indigo-50 text-slate-700 hover:shadow-md ";
-                  }
-                  return (
-                    <button key={index} disabled={!!gameFeedback} onClick={() => handleGameAnswer(option)} className={buttonClass}>
-                      <span className="truncate">{option}</span>
-                      {gameFeedback && option === currentQuestion.correct && (
-                        <div className="bg-emerald-500 text-white p-1 rounded-full animate-bounce shrink-0"><Star size={10} fill="currentColor" /></div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
-        )}
 
-        {/* GAMEOVER SCREEN */}
-        {gameState === 'GAMEOVER' && (
-          <div className="p-4 md:p-8 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-              <div className="text-center py-4 animate-in slide-in-from-bottom duration-500 flex-1 flex flex-col justify-center">
-              <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3 border-4 border-white shadow-lg shrink-0">
-                  <Award size={28} className="text-orange-600" />
-              </div>
-              <h2 className="text-xl font-black text-slate-800 mb-1 text-center shrink-0">O'yin tugadi!</h2>
-              <p className="text-slate-500 mb-4 text-center text-xs shrink-0">Sizning natijangiz:</p>
-              
-              <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
-                  <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
-                  <p className="text-[8px] text-slate-400 uppercase font-bold mb-1 tracking-widest text-center">To'g'ri</p>
-                  <p className="text-xl font-black text-indigo-600 text-center">{gameScore}</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
-                  <p className="text-[8px] text-slate-400 uppercase font-bold mb-1 tracking-widest text-center">Jami XP</p>
-                  <p className="text-xl font-black text-emerald-600 text-center">{gameXp}</p>
-                  </div>
-              </div>
-              
-              <div className="bg-green-50 p-2 rounded-xl mb-4 text-green-700 text-xs font-bold border border-green-100 flex items-center justify-center gap-2 shrink-0">
-                  <RefreshCcw size={10}/> Natijangiz saqlandi!
+          <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 max-w-md mx-auto w-full">
+              <div className="mb-12 text-center w-full animate-in fade-in slide-in-from-bottom-4">
+                  <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-2 py-1 rounded mb-2 inline-block">Translate</span>
+                  <h2 className="text-3xl font-bold text-white leading-tight">{currentWordObj?.translation}</h2>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 shrink-0">
-                  <button onClick={() => setGameState('START')} className="bg-white border-2 border-slate-100 text-slate-600 font-bold py-3 rounded-2xl transition-all flex items-center justify-center gap-2 active:scale-95 text-[9px] px-2 uppercase tracking-widest">
-                  <BookOpen size={14} /> Bosh menyu
-                  </button>
-                  <button onClick={() => startWordGame(selectedDifficulty)} className="bg-indigo-600 text-white font-bold py-3 rounded-2xl shadow-xl shadow-indigo-200 transition-all flex items-center justify-center gap-2 active:scale-95 text-[9px] px-2 uppercase tracking-widest">
-                  <RefreshCcw size={14} /> Qayta
+              <div className="flex flex-wrap justify-center gap-2 mb-12 min-h-[60px]">
+                  {Array.from({length: currentWordObj?.word.length}).map((_, i) => {
+                      const letter = userGuess[i];
+                      return (
+                          <button 
+                            key={i}
+                            onClick={() => letter && handleGuessClick(letter, i)}
+                            className={`w-12 h-14 rounded-xl border-b-4 text-2xl font-black flex items-center justify-center transition-all duration-200 shadow-md
+                                ${letter 
+                                    ? (feedback === 'correct' ? 'bg-emerald-500 border-emerald-700 text-white' : feedback === 'wrong' ? 'bg-rose-500 border-rose-700 text-white' : 'bg-white text-slate-900 border-slate-300') 
+                                    : 'bg-slate-800 border-slate-700'
+                                }`}
+                          >
+                              {letter?.char}
+                          </button>
+                      )
+                  })}
+              </div>
+
+              <div className="flex flex-wrap justify-center gap-3">
+                  {scrambledLetters.map((l) => (
+                      <div key={l.id} className={`${l.status === 'used' ? 'opacity-0 pointer-events-none scale-75' : 'scale-100'} transition-all duration-300`}>
+                          <button 
+                            onClick={() => handleLetterClick(l)}
+                            className="w-14 h-14 bg-indigo-600 rounded-2xl border-b-4 border-indigo-800 text-white text-2xl font-bold active:border-b-0 active:translate-y-1 transition-all shadow-lg shadow-indigo-900/50"
+                          >
+                              {l.char}
+                          </button>
+                      </div>
+                  ))}
+              </div>
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 p-4 bg-slate-900 border-t border-slate-800 pb-safe z-10">
+              <div className="flex gap-4 max-w-md mx-auto">
+                  <button onClick={shuffleCurrent} className="p-4 bg-slate-800 rounded-2xl text-slate-400 hover:text-white active:scale-95 transition-transform"><Shuffle size={24}/></button>
+                  <button 
+                    onClick={checkAnswer}
+                    disabled={userGuess.length !== currentWordObj?.word.length}
+                    className={`flex-1 py-4 rounded-2xl font-black text-lg uppercase tracking-wider transition-all shadow-lg active:scale-95
+                        ${userGuess.length === currentWordObj?.word.length 
+                            ? 'bg-emerald-500 text-white shadow-emerald-500/20' 
+                            : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                  >
+                      Tekshirish
                   </button>
               </div>
-            </div>
           </div>
-        )}
       </div>
-    </div>
   );
 };
-
 export default WordGame;

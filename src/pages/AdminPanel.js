@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // 👈 YANGI: Sahifaga o'tish uchun
 import { db, auth } from '../firebase';
 import { signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { 
@@ -7,7 +8,8 @@ import {
 import { 
   ShieldCheck, Search, Loader2, LogOut, ChevronDown, 
   LayoutGrid, Plus, UserPlus, Users, Filter, CheckCircle, Trash2,
-  BarChart3, Megaphone, Key, Pencil, X, Target, Sparkles, Layers, GraduationCap, Briefcase
+  BarChart3, Megaphone, Key, Pencil, X, Target, Sparkles, Layers, GraduationCap, Briefcase,
+  Gamepad2 // 👈 YANGI: O'yin ikonkasi
 } from 'lucide-react';
 
 // Yordamchi komponent: Gradient Matn
@@ -18,6 +20,8 @@ const GradientText = ({ children, from, to }) => (
 );
 
 const AdminPanel = () => {
+  const navigate = useNavigate(); // 👈 YANGI: Hook chaqirildi
+
   // --- TABS & FILTERS ---
   const [activeTab, setActiveTab] = useState('dashboard');
   const [studentFilter, setStudentFilter] = useState('new'); 
@@ -42,7 +46,7 @@ const AdminPanel = () => {
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState('student'); // 👈 YANGI: Role State
+  const [newRole, setNewRole] = useState('student');
 
   // 1. DATA FETCHING
   const fetchData = async () => {
@@ -76,24 +80,13 @@ const AdminPanel = () => {
   // --- DERIVED DATA ---
   const teachers = users.filter(u => u.role === 'teacher');
   const displayedStudents = (() => {
-    // Endi bu yerda filtrlashda ehtiyot bo'lamiz, "student" tabida bo'lsak ham
-    // Admin userlarni ham ko'rish kerak bo'lishi mumkin, lekin asosan studentlarni chiqaramiz.
-    // Qidiruv orqali hammasini topsa bo'ladi.
     let filtered = users; 
-    
-    // Agar "student" tabida faqat studentlar kerak bo'lsa:
-    // filtered = users.filter(u => u.role === 'student' || !u.role); 
-    // Lekin rol o'zgartirish uchun hamma userlarni ko'rsatgan ma'qul (yoki alohida tab kerak).
-    // Hozircha "Barchasi" filtrida hammasi chiqadi.
-
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
       filtered = filtered.filter(u => u.name.toLowerCase().includes(lower) || u.email.toLowerCase().includes(lower));
     }
-    
     if (studentFilter === 'new') return filtered.filter(u => !u.groupId && (u.role === 'student' || !u.role));
     if (studentFilter === 'assigned') return filtered.filter(u => u.groupId);
-    // 'all' bo'lsa hammasi qaytadi
     return filtered; 
   })();
 
@@ -116,21 +109,19 @@ const AdminPanel = () => {
       try { await sendPasswordResetEmail(auth, email); alert("Email yuborildi!"); } catch (e) { alert("Xatolik: " + e.message); }
   };
 
-  // 🔥 YANGI: EDIT MODAL OCHISH (Role bilan)
   const openEditModal = (user) => { 
       setEditingUser(user); 
       setNewName(user.name); 
-      setNewRole(user.role || 'student'); // Userning hozirgi rolini olamiz
+      setNewRole(user.role || 'student');
       setIsEditUserOpen(true); 
   };
 
-  // 🔥 YANGI: SAQLASH (Role bilan)
   const saveUserEdit = async (e) => {
       e.preventDefault(); if(!editingUser) return;
       try { 
           await updateDoc(doc(db, "students", editingUser.id), { 
               name: newName,
-              role: newRole // Rolni ham yangilaymiz
+              role: newRole 
           }); 
           setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, name: newName, role: newRole } : u)); 
           setIsEditUserOpen(false); 
@@ -143,34 +134,16 @@ const AdminPanel = () => {
     try { const docRef = await addDoc(collection(db, "groups"), { name: newGroupName, teacherId: null, createdAt: serverTimestamp() }); setGroups([...groups, { id: docRef.id, name: newGroupName, teacherId: null }]); setNewGroupName(''); } catch(e) { alert(e.message); }
   };
   const deleteGroup = async (id) => { if(window.confirm("O'chirilsinmi?")) { await deleteDoc(doc(db, "groups", id)); setGroups(prev=>prev.filter(g=>g.id!==id)); }};
-  // ✅ BU YANGI KODNI QO'YING:
+  
   const assignGroupToStudent = async (uid, gid) => { 
       setProcessingId(uid); 
       try { 
-          // 1. Agar gid bo'sh bo'lsa null, aks holda bo'sh joylarni (space) olib tashlaymiz
           const finalGroupId = gid ? gid.trim() : null;
-
-          // 2. Bazaga yozish: groupId va status ni 'active' qilish
-          await updateDoc(doc(db, "students", uid), { 
-              groupId: finalGroupId,
-              status: 'active' // 👈 MUHIM: O'quvchi guruhda ko'rinishi uchun status active bo'lishi kerak
-          }); 
-
-          // 3. Ekranni yangilash
-          setUsers(p => p.map(u => u.id === uid ? { 
-              ...u, 
-              groupId: finalGroupId,
-              status: 'active' 
-          } : u)); 
-      } 
-      catch(e){
-          console.error("Guruh biriktirishda xato:", e);
-          alert(e.message); 
-      } 
-      finally{
-          setProcessingId(null);
-      }
+          await updateDoc(doc(db, "students", uid), { groupId: finalGroupId, status: 'active' }); 
+          setUsers(p => p.map(u => u.id === uid ? { ...u, groupId: finalGroupId, status: 'active' } : u)); 
+      } catch(e){ console.error("Guruh biriktirishda xato:", e); alert(e.message); } finally{ setProcessingId(null); }
   };
+  
   const assignTeacherToGroup = async (gid, tid) => {
       setProcessingId(gid); try { await updateDoc(doc(db, "groups", gid), { teacherId: tid }); setGroups(p=>p.map(g=>g.id===gid?{...g, teacherId: tid}:g)); } catch(e){alert(e.message)} finally{setProcessingId(null)}
   };
@@ -217,9 +190,20 @@ const AdminPanel = () => {
               </p>
             </div>
           </div>
-          <button onClick={handleLogout} className="bg-white/80 p-3.5 rounded-2xl hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-all shadow-sm border border-white/50 group">
-            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform"/>
-          </button>
+
+          {/* 🔥 NAVIGATSIYA TUGMALARI (YANGI QO'SHILDI) */}
+          <div className="flex gap-2">
+             <button 
+                onClick={() => navigate('/admin/game-builder')} 
+                className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50"
+             >
+                <Gamepad2 size={18} /> O'yin Sozlamalari
+             </button>
+
+             <button onClick={handleLogout} className="bg-white/80 p-3.5 rounded-2xl hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-all shadow-sm border border-white/50 group">
+                <LogOut size={20} className="group-hover:-translate-x-1 transition-transform"/>
+             </button>
+          </div>
         </div>
 
         {/* STATS CARDS */}
@@ -322,7 +306,6 @@ const AdminPanel = () => {
                        </div>
 
                        <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
-                          {/* Faqat studentlarga guruh tanlash ko'rinadi */}
                           {(user.role === 'student' || !user.role) && (
                             <div className="relative w-full md:w-64 group/select">
                                <select className={`w-full appearance-none pl-5 pr-12 py-3.5 rounded-2xl text-xs font-black border outline-none cursor-pointer transition-all shadow-sm ${isNew ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white border-transparent hover:shadow-rose-200/50 hover:scale-[1.02]' : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300 focus:ring-2 focus:ring-indigo-500'}`} onChange={(e)=>assignGroupToStudent(user.id, e.target.value)} value={user.groupId||""} disabled={processingId===user.id}>
@@ -433,7 +416,7 @@ const AdminPanel = () => {
 
       </div>
 
-      {/* 🔥 YANGI: EDIT USER MODAL (ROLE BILAN) */}
+      {/* EDIT USER MODAL */}
       {isEditUserOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
               <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[2.5rem] w-full max-w-sm shadow-2xl border border-white/50 animate-in zoom-in-95 duration-300 relative overflow-hidden">

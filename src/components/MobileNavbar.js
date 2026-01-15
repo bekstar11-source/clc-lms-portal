@@ -1,11 +1,18 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-// 🔥 BarChart3 ni olib tashlab, AlertCircle (Qarzdorlar uchun) qo'shdik
-import { LayoutDashboard, BookOpen, AlertCircle, LogOut } from 'lucide-react'; 
+import { 
+  LayoutDashboard, 
+  BookOpen, 
+  AlertCircle, 
+  LogOut, 
+  Gamepad2, // 👈 YANGI: O'yin ikonkasi
+  User      // 👈 YANGI: Profil/Sozlamalar uchun (Studentga)
+} from 'lucide-react'; 
 import { auth } from '../firebase'; 
 import { signOut } from 'firebase/auth'; 
 
-const MobileNavbar = () => {
+// 🔥 role propini qabul qilamiz
+const MobileNavbar = ({ role }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -16,7 +23,8 @@ const MobileNavbar = () => {
     }
   };
 
-  const navItems = [
+  // 1. O'QITUVCHI MENYUSI (Eski kod o'zgarishsiz)
+  const teacherNavItems = [
     { 
       path: '/', 
       icon: <LayoutDashboard size={20} />, 
@@ -27,7 +35,6 @@ const MobileNavbar = () => {
       icon: <BookOpen size={20} />, 
       label: 'Vazifalar' 
     },
-    // 🔥 O'ZGARISH SHU YERDA: Jurnal -> Qarzdorlar
     { 
       path: '/debtors', 
       icon: <AlertCircle size={20} />, 
@@ -35,16 +42,50 @@ const MobileNavbar = () => {
     },
   ];
 
+  // 2. O'QUVCHI MENYUSI (Yangi)
+  const studentNavItems = [
+    { 
+      path: '/', 
+      icon: <LayoutDashboard size={20} />, 
+      label: 'Asosiy' 
+    },
+    { 
+      path: '/games',  // 👈 Bu yerda GameHub ga yo'naltiradi
+      icon: <Gamepad2 size={20} />, 
+      label: 'O\'yinlar' 
+    },
+    { 
+      path: '/settings', 
+      icon: <User size={20} />, 
+      label: 'Profil' 
+    },
+  ];
+
+  // Rolga qarab kerakli menyuni tanlaymiz
+  const navItems = role === 'student' ? studentNavItems : teacherNavItems;
+
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2 md:hidden z-50 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
       <div className="flex justify-between items-center max-w-sm mx-auto">
+        
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           
-          // 🔥 Qarzdorlar tugmasi aktiv bo'lganda qizilroq, boshqalari indigo bo'lishi uchun mantiq
+          // 🔥 Maxsus ranglar logikasi
           const isDebtorTab = item.path === '/debtors';
-          const activeBg = isDebtorTab ? 'bg-red-500 shadow-red-200' : 'bg-indigo-600 shadow-indigo-200';
-          const activeText = isDebtorTab ? 'text-red-500' : 'text-indigo-600';
+          const isGameTab = item.path === '/games';
+
+          // Qarzdorlar -> Qizil, O'yinlar -> Binafsha, Boshqalar -> Indigo
+          let activeBg = 'bg-indigo-600 shadow-indigo-200';
+          let activeText = 'text-indigo-600';
+
+          if (isDebtorTab) {
+            activeBg = 'bg-red-500 shadow-red-200';
+            activeText = 'text-red-500';
+          } else if (isGameTab) {
+            activeBg = 'bg-purple-600 shadow-purple-200'; // O'yinlar uchun chiroyli rang
+            activeText = 'text-purple-600';
+          }
 
           return (
             <Link 

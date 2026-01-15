@@ -2,135 +2,146 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
-  serverTimestamp, orderBy, addDoc, getDoc // 👈 getDoc qo'shildi
+  serverTimestamp, orderBy, addDoc, getDoc
 } from 'firebase/firestore';
 import { 
   X, Trash2, Edit2, Plus, Star,
   Calendar as CalendarIcon, Users, Loader2, Save, Trophy, BarChart3,
-  Target, BookOpen, Sparkles, Zap
+  Target, BookOpen, Sparkles, Zap, RefreshCw
 } from 'lucide-react';
 
 const Assignments = () => {
-  // STATE
+  // --- STATE ---
+  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
+  
+  // Kesh ma'lumotlari ("Manba")
+  const [cacheData, setCacheData] = useState({}); 
   const [groups, setGroups] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  // Hozirgi tanlangan guruh ma'lumotlari
   const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [students, setStudents] = useState([]);
   const [lessons, setLessons] = useState([]);
-  const [allGrades, setAllGrades] = useState([]); // Statistika uchun
-  
-  // EDIT LESSON STATE
+  const [allGrades, setAllGrades] = useState([]); 
+
+  // Modallar
   const [editingLesson, setEditingLesson] = useState(null);
   const [newTopic, setNewTopic] = useState('');
   const [newTasks, setNewTasks] = useState([]); 
   
-  // GRADING STATE
   const [gradingLesson, setGradingLesson] = useState(null);
   const [lessonGrades, setLessonGrades] = useState({});
   const [savingStatus, setSavingStatus] = useState(null);
 
-  const [loading, setLoading] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
-
-  // 1. GURUHLARNI YUKLASH (Admin uchun moslashtirildi)
+  // 1. DATA YUKLASH (KESH BILAN)
   useEffect(() => {
-    const fetchGroups = async () => {
-      try {
-        const user = auth.currentUser;
-        if (!user) return;
+    const loadAllData = async (forceRefresh = false) => {
+      setPageLoading(true);
+      const user = auth.currentUser;
+      if (!user) return;
 
-        // 1. Avval foydalanuvchi rolini tekshiramiz
+      // A) KESHNI TEKSHIRISH
+      if (!forceRefresh) {
+        const cached = localStorage.getItem('assignmentsCache');
+        const cachedTime = localStorage.getItem('assignmentsTime');
+        
+        if (cached && cachedTime && (new Date().getTime() - parseInt(cachedTime) < 5 * 60 * 1000)) {
+           const parsedData = JSON.parse(cached);
+           setGroups(parsedData.groups);
+           setCacheData(parsedData.details);
+           setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString());
+           
+           if (parsedData.groups.length > 0 && !selectedGroupId) {
+             setSelectedGroupId(parsedData.groups[0].id);
+           }
+           setPageLoading(false);
+           setLoading(false);
+           return;
+        }
+      }
+
+      // B) FIREBASE DAN YUKLASH (PARALLEL)
+      try {
+        // 1. Rolni aniqlash
         const userRef = doc(db, "students", user.uid);
         const userSnap = await getDoc(userRef);
-        const userData = userSnap.exists() ? userSnap.data() : {};
-        const role = userData.role;
+        const role = userSnap.exists() ? userSnap.data().role : 'student';
 
-        let q;
-        // 2. Agar ADMIN bo'lsa hamma guruhni olamiz, TEACHER bo'lsa faqat o'zinikini
-        if (role === 'admin') {
-            q = query(collection(db, "groups"));
-        } else {
-            q = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-        }
-
-        const snap = await getDocs(q);
-        const groupList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // 2. Guruhlarni olish
+        let qGroups;
+        if (role === 'admin') qGroups = query(collection(db, "groups"));
+        else qGroups = query(collection(db, "groups"), where("teacherId", "==", user.uid));
         
-        setGroups(groupList);
-        if (groupList.length > 0) {
-          setSelectedGroupId(groupList[0].id);
+        const groupSnap = await getDocs(qGroups);
+        const fetchedGroups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // 3. Hamma guruh ma'lumotlarini PARALLEL olish
+        const detailsMap = {};
+        
+        const promises = fetchedGroups.map(async (grp) => {
+             const [studSnap, lessonSnap, gradeSnap] = await Promise.all([
+                 getDocs(query(collection(db, "students"), where("groupId", "==", grp.id))),
+                 getDocs(query(collection(db, "lessons"), where("groupId", "==", grp.id), orderBy("date", "desc"))),
+                 getDocs(query(collection(db, "grades"), where("groupId", "==", grp.id)))
+             ]);
+
+             detailsMap[grp.id] = {
+                 students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name)),
+                 lessons: lessonSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                 grades: gradeSnap.docs.map(d => ({ ...d.data(), id: d.id, score: Number(d.data().score) || 0 }))
+             };
+        });
+
+        await Promise.all(promises);
+
+        // State va Keshni yangilash
+        setGroups(fetchedGroups);
+        setCacheData(detailsMap);
+        
+        if (fetchedGroups.length > 0 && !selectedGroupId) {
+            setSelectedGroupId(fetchedGroups[0].id);
         }
+
+        const now = new Date();
+        localStorage.setItem('assignmentsCache', JSON.stringify({ groups: fetchedGroups, details: detailsMap }));
+        localStorage.setItem('assignmentsTime', now.getTime().toString());
+        setLastUpdated(now.toLocaleTimeString());
+
       } catch (e) {
-        console.error("Guruhlarni yuklashda xato:", e);
+        console.error("Yuklashda xato:", e);
       } finally {
         setPageLoading(false);
+        setLoading(false);
       }
     };
-    fetchGroups();
+
+    loadAllData();
   }, []);
 
-  // 2. MA'LUMOTLARNI YUKLASH (Guruh o'zgarganda)
+  // 2. GURUH O'ZGARISHI (LOCAL)
   useEffect(() => {
-    const fetchData = async () => {
-      if (!selectedGroupId) return;
-      
-      setLoading(true);
-      try {
-        // A) Darslarni yuklash
-        const qL = query(collection(db, "lessons"), where("groupId", "==", selectedGroupId), orderBy("date", "desc"));
-        const snapL = await getDocs(qL);
-        setLessons(snapL.docs.map(d => ({ id: d.id, ...d.data() })));
+    if (selectedGroupId && cacheData[selectedGroupId]) {
+        const data = cacheData[selectedGroupId];
+        setStudents(data.students);
+        setLessons(data.lessons);
+        setAllGrades(data.grades);
+    }
+  }, [selectedGroupId, cacheData]);
 
-        // B) O'quvchilarni yuklash
-        const qS = query(collection(db, "students"), where("groupId", "==", selectedGroupId));
-        const snapS = await getDocs(qS);
-        const studentList = snapS.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        // Alifbo tartibida saralash
-        studentList.sort((a, b) => a.name.localeCompare(b.name));
-        setStudents(studentList);
-
-        // C) Baholarni yuklash (Statistika uchun)
-        const qG = query(collection(db, "grades"), where("groupId", "==", selectedGroupId));
-        const snapG = await getDocs(qG);
-        // Baholarni to'g'ridan-to'g'ri Number ga o'tkazib olamiz (xavfsizlik uchun)
-        setAllGrades(snapG.docs.map(d => ({
-            ...d.data(),
-            score: Number(d.data().score) || 0 // Matn bo'lsa raqamga aylantirish
-        })));
-
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    };
-
-    fetchData();
-  }, [selectedGroupId]);
-
-  // --- STATISTIKA (TOP 3 - TUZATILGAN) ---
+  // --- STATISTIKA ---
   const topStudents = useMemo(() => {
     if (students.length === 0 || allGrades.length === 0) return [];
-
     const stats = students.map(student => {
-        // Shu o'quvchiga tegishli barcha baholar
         const studentGrades = allGrades.filter(g => g.studentId === student.id);
-        
         if (studentGrades.length === 0) return { ...student, avg: 0 };
-        
-        // Jami ballni hisoblash (Faqat raqamlar)
-        const total = studentGrades.reduce((sum, g) => {
-            const val = Number(g.score); 
-            // Agar 100 dan katta bo'lsa (eski xato), uni hisobga olmaymiz yoki 100 deb olamiz
-            const cleanVal = val > 100 ? 100 : val; 
-            return sum + (isNaN(cleanVal) ? 0 : cleanVal);
-        }, 0);
-
-        const avg = Math.round(total / studentGrades.length);
-        return { ...student, avg };
+        const total = studentGrades.reduce((sum, g) => sum + (g.score > 100 ? 100 : Number(g.score)), 0);
+        return { ...student, avg: Math.round(total / studentGrades.length) };
     });
-
     return stats.sort((a, b) => b.avg - a.avg).slice(0, 3);
   }, [students, allGrades]);
 
-  // --- GURUH DIZAYNI ---
   const getGroupStyle = (index) => {
     const styles = [
       { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-500', active: 'bg-blue-600 border-blue-600 shadow-blue-200', icon: Users },
@@ -143,87 +154,85 @@ const Assignments = () => {
     return styles[index % styles.length];
   };
 
+  const refreshData = () => {
+    localStorage.removeItem('assignmentsCache');
+    window.location.reload();
+  };
+
+  // --- KESHNI YANGILASH FUNKSIYASI (Optimistik UI) ---
+  const updateCacheLocally = (type, item) => {
+      const currentGroupData = cacheData[selectedGroupId];
+      if (!currentGroupData) return;
+
+      let newData = { ...currentGroupData };
+
+      if (type === 'grade_update') {
+          // Mavjud bahoni yangilash
+          newData.grades = newData.grades.map(g => (g.studentId === item.studentId && g.taskType === item.taskType && g.lessonId === item.lessonId) ? { ...g, score: item.score } : g);
+      } else if (type === 'grade_add') {
+          // Yangi baho qo'shish
+          newData.grades = [...newData.grades, item];
+      } else if (type === 'lesson_update') {
+          // Darsni yangilash
+          newData.lessons = newData.lessons.map(l => l.id === item.id ? item : l);
+      }
+
+      const newCache = { ...cacheData, [selectedGroupId]: newData };
+      setCacheData(newCache);
+      localStorage.setItem('assignmentsCache', JSON.stringify({ groups, details: newCache }));
+  };
+
   // --- FUNKSIYALAR ---
   const openGradingModal = async (lesson) => {
     setGradingLesson(lesson);
     setLessonGrades({});
     
-    // Shu darsga tegishli baholarni yuklash
-    const q = query(collection(db, "grades"), where("lessonId", "==", lesson.id));
-    const snap = await getDocs(q);
-    
+    // Keshdagi baholardan o'qib olamiz (Firebasega so'rov ketmaydi)
+    const gradesForLesson = allGrades.filter(g => g.lessonId === lesson.id);
     const loadedGrades = {};
-    snap.docs.forEach(doc => {
-        const data = doc.data();
-        const key = `${data.studentId}_${data.taskType}`; 
-        // Load qilganda ham raqamga aylantiramiz
-        loadedGrades[key] = { score: Number(data.score), docId: doc.id };
+    gradesForLesson.forEach(g => {
+        loadedGrades[`${g.studentId}_${g.taskType}`] = { score: g.score, docId: g.id };
     });
     setLessonGrades(loadedGrades);
   };
 
-  // --- INPUT O'ZGARISHI ---
   const handleGradeChange = (studentId, taskName, value) => {
     const key = `${studentId}_${taskName}`;
-    
-    if (value === '') {
-        setLessonGrades(prev => ({ ...prev, [key]: { ...prev[key], score: '' } }));
-        return;
-    }
-
+    if (value === '') { setLessonGrades(prev => ({ ...prev, [key]: { ...prev[key], score: '' } })); return; }
     let numValue = parseInt(value, 10);
     if (isNaN(numValue)) return;
-    
-    // Cheklov
     if (numValue > 100) numValue = 100;
     if (numValue < 0) numValue = 0;
-
-    setLessonGrades(prev => ({
-        ...prev,
-        [key]: { ...prev[key], score: numValue }
-    }));
+    setLessonGrades(prev => ({ ...prev, [key]: { ...prev[key], score: numValue } }));
   };
 
-  // --- SAQLASH (INTEGRATSIYA TUZATILDI) ---
   const saveGrade = async (studentId, studentName, taskName, value) => {
     const key = `${studentId}_${taskName}`;
     const currentEntry = lessonGrades[key];
-    
     if ((value === '' || value === undefined) && !currentEntry?.docId) return;
 
     setSavingStatus('saving');
-    
-    // Matn kelib qolsa ham raqamga aylantiramiz
     const safeScore = value === '' ? 0 : Number(value);
 
     try {
         if (currentEntry?.docId) {
             // Update
-            await updateDoc(doc(db, "grades", currentEntry.docId), { 
-                score: safeScore, 
-                date: serverTimestamp() 
-            });
+            await updateDoc(doc(db, "grades", currentEntry.docId), { score: safeScore, date: serverTimestamp() });
             
-            // Statistikani lokal yangilash (sahifa yangilanmasligi uchun)
-            setAllGrades(prev => prev.map(g => g.studentId === studentId && g.taskType === taskName && g.lessonId === gradingLesson.id ? { ...g, score: safeScore } : g));
-
+            // 🔥 Keshni yangilaymiz
+            updateCacheLocally('grade_update', { studentId, taskType: taskName, lessonId: gradingLesson.id, score: safeScore });
         } else {
             // Create
             const newDoc = await addDoc(collection(db, "grades"), {
-                studentId, 
-                studentName, 
-                groupId: selectedGroupId, 
-                lessonId: gradingLesson.id,
-                taskType: taskName, 
-                comment: gradingLesson.topic, 
-                score: safeScore, 
-                date: serverTimestamp()
+                studentId, studentName, groupId: selectedGroupId, 
+                lessonId: gradingLesson.id, taskType: taskName, 
+                comment: gradingLesson.topic, score: safeScore, date: serverTimestamp()
             });
             
             setLessonGrades(prev => ({ ...prev, [key]: { score: safeScore, docId: newDoc.id } }));
             
-            // Statistikaga yangi bahoni qo'shish
-            setAllGrades(prev => [...prev, { studentId, score: safeScore, groupId: selectedGroupId }]);
+            // 🔥 Keshni yangilaymiz
+            updateCacheLocally('grade_add', { id: newDoc.id, studentId, taskType: taskName, lessonId: gradingLesson.id, score: safeScore, groupId: selectedGroupId });
         }
         setSavingStatus('saved');
         setTimeout(() => setSavingStatus(null), 1000);
@@ -242,8 +251,13 @@ const Assignments = () => {
     setLoading(true);
     try {
       const lessonRef = doc(db, "lessons", editingLesson.id);
+      const updatedLesson = { ...editingLesson, topic: newTopic, tasks: newTasks };
+      
       await updateDoc(lessonRef, { topic: newTopic, tasks: newTasks, updatedAt: serverTimestamp() });
-      setLessons(prev => prev.map(l => l.id === editingLesson.id ? { ...l, topic: newTopic, tasks: newTasks } : l));
+      
+      // 🔥 Keshni yangilaymiz
+      updateCacheLocally('lesson_update', updatedLesson);
+      
       setEditingLesson(null);
     } catch (e) { alert(e.message); }
     finally { setLoading(false); }
@@ -252,8 +266,12 @@ const Assignments = () => {
   const deleteTaskFromLesson = async (lessonId, currentTasks, taskIndex) => {
     if(!window.confirm("Vazifani o'chirmoqchimisiz?")) return;
     const updatedTasks = currentTasks.filter((_, i) => i !== taskIndex);
+    const targetLesson = lessons.find(l => l.id === lessonId);
+    
     await updateDoc(doc(db, "lessons", lessonId), { tasks: updatedTasks });
-    setLessons(prev => prev.map(l => l.id === lessonId ? { ...l, tasks: updatedTasks } : l));
+    
+    // 🔥 Keshni yangilaymiz
+    updateCacheLocally('lesson_update', { ...targetLesson, tasks: updatedTasks });
   };
 
   if (pageLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]"><Loader2 className="animate-spin text-indigo-600"/></div>;
@@ -261,12 +279,18 @@ const Assignments = () => {
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-32">
       
-      {/* 1. HEADER (Rangli Guruhlar) */}
+      {/* 1. HEADER */}
       <div className="bg-white pt-6 pb-4 shadow-sm border-b border-slate-200 sticky top-0 z-40">
-        <div className="px-4 mb-4 flex justify-between items-center">
-          <h1 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">Assignments</h1>
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded-lg">
-            Total: {lessons.length}
+        <div className="px-4 mb-4 flex justify-between items-end">
+          <div>
+              <h1 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">Assignments</h1>
+              <p className="text-[10px] font-bold text-slate-400">Yangilandi: {lastUpdated}</p>
+          </div>
+          <div className="flex gap-2">
+              <button onClick={refreshData} className="p-2 bg-slate-50 text-indigo-600 rounded-lg hover:bg-indigo-50 border border-slate-200"><RefreshCw size={18}/></button>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 flex items-center">
+                Total: {lessons.length}
+              </div>
           </div>
         </div>
 
@@ -316,7 +340,7 @@ const Assignments = () => {
              </div>
            ) : (
              lessons.map(l => (
-               <div key={l.id} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-all">
+               <div key={l.id} className="bg-white p-4 rounded-[1.5rem] border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-all animate-in fade-in">
                   <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openGradingModal(l)} className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition-all shadow-sm">
                       <Star size={14}/>
@@ -349,44 +373,33 @@ const Assignments = () => {
 
          {/* 3. ANALYTICS (Desktop Only) */}
          <div className="hidden lg:block space-y-6">
-            
-            {/* TOP 3 STUDENTS */}
             <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm sticky top-40">
                 <div className="flex items-center gap-2 mb-4">
                     <Trophy size={18} className="text-amber-500" />
                     <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Top Performers</h3>
                 </div>
-                
                 <div className="space-y-3">
                     {topStudents.length === 0 ? <p className="text-xs text-slate-400 italic">Ma'lumot yetarli emas</p> : 
                     topStudents.map((s, i) => (
                         <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                             <div className="flex items-center gap-3">
-                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white ${i===0 ? 'bg-amber-400' : i===1 ? 'bg-slate-400' : 'bg-orange-400'}`}>
-                                    {i+1}
-                                </div>
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white ${i===0 ? 'bg-amber-400' : i===1 ? 'bg-slate-400' : 'bg-orange-400'}`}>{i+1}</div>
                                 <span className="text-xs font-bold text-slate-700">{s.name}</span>
                             </div>
                             <span className="text-xs font-black text-indigo-600">{s.avg}%</span>
                         </div>
                     ))}
                 </div>
-
-                {/* COMPACT BAR CHART */}
                 <div className="mt-8 pt-6 border-t border-slate-100">
                     <div className="flex items-center gap-2 mb-4">
                         <BarChart3 size={18} className="text-indigo-500" />
                         <h3 className="text-xs font-black text-slate-700 uppercase tracking-widest">Performance</h3>
                     </div>
-                    
                     <div className="flex items-end justify-between h-24 gap-2 px-2">
                         {topStudents.map((s, i) => (
                             <div key={s.id} className="flex flex-col items-center gap-2 w-full group cursor-pointer">
                                 <span className="text-[9px] font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">{s.avg}%</span>
-                                <div 
-                                    className={`w-full rounded-t-lg transition-all duration-500 ${i===0 ? 'bg-indigo-500' : 'bg-indigo-300'}`}
-                                    style={{ height: `${s.avg}%` }}
-                                ></div>
+                                <div className={`w-full rounded-t-lg transition-all duration-500 ${i===0 ? 'bg-indigo-500' : 'bg-indigo-300'}`} style={{ height: `${s.avg}%` }}></div>
                                 <span className="text-[9px] font-black text-slate-400 uppercase truncate w-12 text-center">{s.name.split(' ')[0]}</span>
                             </div>
                         ))}
@@ -394,7 +407,6 @@ const Assignments = () => {
                 </div>
             </div>
          </div>
-
       </div>
 
       {/* --- GRADING MODAL --- */}

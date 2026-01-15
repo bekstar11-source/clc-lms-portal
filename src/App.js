@@ -11,6 +11,11 @@ import MobileNavbar from './components/MobileNavbar';
 
 // SAHIFALAR
 import AdminPanel from './pages/AdminPanel';
+import SprintGame from './pages/SprintGame';
+import SentenceGame from './pages/SentenceGame';
+import GameHub from './pages/GameHub'; //
+import WordGame from './pages/WordGame'; // 👈 YANGI: WordGame import qilindi
+import AdminGameBuilder from './pages/AdminGameBuilder';
 import TeacherDashboard from './pages/TeacherDashboard'; 
 import GroupList from './pages/GroupList';             
 import GroupDetails from './pages/GroupDetails';       
@@ -22,8 +27,7 @@ import StudentSettings from './pages/StudentSettings';
 
 // QO'SHIMCHA SAHIFALAR
 import Assignments from './pages/Assignments'; 
-// import Grading from './pages/Grading'; // Grading endi kerak emas (yoki admin uchun qoldirsa bo'ladi)
-import Debtors from './pages/Debtors'; // 👈 YANGI SAHIFA
+import Debtors from './pages/Debtors';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -42,7 +46,6 @@ function App() {
           
           if (userSnap.exists()) {
              const userData = userSnap.data();
-             // Bloklangan foydalanuvchini chiqarib yuborish
              if (userData.status === 'banned') {
                await signOut(auth);
                alert("Sizning profilingiz bloklangan.");
@@ -51,7 +54,6 @@ function App() {
                setRole(userData.role || 'student'); 
              }
           } else {
-             // Agar user bazada topilmasa, default student beramiz
              setRole('student');
           }
         } catch (error) { 
@@ -101,12 +103,19 @@ function App() {
           {/* ADMIN MAXSUS YO'LLARI */}
           <Route path="/admin" element={role === 'admin' ? <AdminPanel /> : <Navigate to="/" />} />
           <Route path="/groups" element={role === 'admin' ? <GroupList /> : <Navigate to="/" />} />
+          <Route path="/admin/game-builder" element={role === 'admin' ? <AdminGameBuilder /> : <Navigate to="/" />} />
+          
+          {/* 🔥 YANGI ROUTE */}
+          <Route path="/games" element={<GameHub />} />
+          
+          {/* 🔥 O'YINLAR ROUTELARI */}
+          <Route path="/sprint-game" element={<SprintGame />} />
+          <Route path="/word-game" element={<WordGame />} /> {/* 👈 YANGI */}
+          <Route path="/sentence-game" element={<SentenceGame />} />
 
           {/* O'QITUVCHI VA ADMIN UMUMIY YO'LLARI */}
           <Route path="/group/:groupId" element={(role === 'teacher' || role === 'admin') ? <GroupDetails /> : <Navigate to="/" />} />
           <Route path="/assignments" element={(role === 'teacher' || role === 'admin') ? <Assignments /> : <Navigate to="/" />} />
-          
-          {/* 🔥 YANGI ROUTE: DEBTORS (QARZDORLAR) */}
           <Route path="/debtors" element={(role === 'teacher' || role === 'admin') ? <Debtors /> : <Navigate to="/" />} />
 
           {/* SOZLAMALAR */}
