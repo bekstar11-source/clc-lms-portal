@@ -5,18 +5,14 @@ import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, onSnapshot 
 } from 'firebase/firestore';
 import { 
-  Users, ChevronRight, LayoutGrid, Sparkles, BookOpen, 
-  CheckCircle2, XCircle, AlertTriangle, TrendingDown, 
-  Bell, Search, ArrowRight, MessageCircle // 👈 1. Import borligini tekshiring
+  LayoutGrid, Sparkles, BookOpen, ChevronRight,
+  CheckCircle2, XCircle, AlertTriangle, 
+  Bell, Search, ArrowRight, MessageCircle 
 } from 'lucide-react';
 
 // --- SKELETON LOADER ---
 const DashboardSkeleton = () => (
   <div className="p-4 space-y-6 max-w-7xl mx-auto pt-[calc(1rem+env(safe-area-inset-top))]">
-      <div className="flex justify-between items-center">
-          <div className="h-8 w-40 bg-slate-200 rounded-lg animate-pulse"></div>
-          <div className="h-10 w-10 bg-slate-200 rounded-full animate-pulse"></div>
-      </div>
       <div className="h-32 w-full bg-slate-200 rounded-[2rem] animate-pulse"></div>
       <div className="grid grid-cols-2 gap-4">
           <div className="h-40 bg-slate-200 rounded-[2rem] animate-pulse"></div>
@@ -27,13 +23,15 @@ const DashboardSkeleton = () => (
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const location = useLocation(); // 👈 Hozirgi manzilni olish uchun kerak
   const [teacherName, setTeacherName] = useState('');
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [retakeAlerts, setRetakeAlerts] = useState([]);
   const [debtors, setDebtors] = useState([]);
-  const [unreadMessages, setUnreadMessages] = useState(0); 
+  
+  // 🔥 O'qilmagan xabarlar soni
+  const [unreadMessages, setUnreadMessages] = useState(0);
   
   const [activeTab, setActiveTab] = useState('groups');
 
@@ -49,7 +47,7 @@ const TeacherDashboard = () => {
     else setActiveTab('groups');
   }, [location.pathname]);
 
-  // 1. DATA FETCHING
+  // 1. MA'LUMOTLARNI YUKLASH
   useEffect(() => {
     const fetchData = async () => {
       const currentUser = auth.currentUser;
@@ -59,7 +57,10 @@ const TeacherDashboard = () => {
         const userRef = doc(db, "students", currentUser.uid);
         const groupsQuery = query(collection(db, "groups"), where("teacherId", "==", currentUser.uid));
         
-        const [userDoc, groupsSnap] = await Promise.all([getDoc(userRef), getDocs(groupsQuery)]);
+        const [userDoc, groupsSnap] = await Promise.all([
+            getDoc(userRef),
+            getDocs(groupsQuery)
+        ]);
 
         if (userDoc.exists()) setTeacherName(userDoc.data().name);
         const fetchedGroups = groupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -87,7 +88,7 @@ const TeacherDashboard = () => {
             const studentsMap = {};
             students.forEach(s => studentsMap[s.id] = s.name);
 
-            // Retakes
+            // Retakes logic
             gradeDocs.forEach(d => {
                 const g = d.data();
                 if (g.status === 'retake_submitted') {
@@ -104,7 +105,7 @@ const TeacherDashboard = () => {
                 }
             });
 
-            // Debtors
+            // Debtors logic
             students.forEach(student => {
                 const studentGrades = grades.filter(g => g.studentId === student.id);
                 const validGrades = studentGrades.map(g => Number(g.score)).filter(s => !isNaN(s));
@@ -133,10 +134,15 @@ const TeacherDashboard = () => {
     fetchData();
   }, []);
 
-  // 2. CHAT ALERTS LISTENER
+  // 2. 🔥 REALTIME CHAT ALERTS
   useEffect(() => {
     if (!auth.currentUser) return;
-    const q = query(collection(db, "chats"), where("participants", "array-contains", auth.currentUser.uid));
+
+    const q = query(
+      collection(db, "chats"), 
+      where("participants", "array-contains", auth.currentUser.uid)
+    );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let totalUnread = 0;
       snapshot.docs.forEach(doc => {
@@ -147,6 +153,7 @@ const TeacherDashboard = () => {
       });
       setUnreadMessages(totalUnread);
     });
+
     return () => unsubscribe();
   }, []);
 
@@ -185,7 +192,7 @@ const TeacherDashboard = () => {
          </div>
 
          <div className="flex items-center gap-3">
-             {/* 🔥 DESKTOP UCHUN CHAT TUGMASI (Mobilda ko'rinmaydi: hidden md:flex) */}
+             {/* Desktop Chat Button */}
              <button 
                 onClick={() => {triggerHaptic(); navigate('/chat');}} 
                 className="hidden md:flex p-2.5 bg-white text-slate-400 hover:text-indigo-600 rounded-xl shadow-sm border border-slate-100 active:scale-95 transition-all relative"
@@ -207,8 +214,6 @@ const TeacherDashboard = () => {
         {/* GROUPS TAB */}
         {activeTab === 'groups' && (
             <div className="animate-in fade-in slide-in-from-left-4 duration-500">
-                
-                {/* Retake Alerts */}
                 {retakeAlerts.length > 0 && (
                     <div className="mb-8">
                         <div className="flex items-center justify-between mb-3 px-2">
@@ -234,7 +239,6 @@ const TeacherDashboard = () => {
                     </div>
                 )}
 
-                {/* Groups Grid */}
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                     {groups.map((group, index) => {
                         const style = index % 2 === 0 ? 'from-blue-500 to-indigo-600' : 'from-emerald-400 to-teal-600';
@@ -281,31 +285,33 @@ const TeacherDashboard = () => {
       </div>
 
       {/* --- TEACHER BOTTOM NAVIGATION (MOBILE) --- */}
-      {/* 🔥 BU YERDA HAMMA TUGMALAR BORLIGINI TEKSHIRING */}
-      <div className="md:hidden fixed bottom-0 w-full bg-white/95 backdrop-blur-xl border-t border-slate-200 flex justify-around py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] z-50 shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.05)]">
-        
-        {/* 1. Guruhlar */}
-        <button onClick={() => {triggerHaptic(); setActiveTab('groups');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'groups' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
-            <LayoutGrid size={24} strokeWidth={2.5} />
-            <span className="text-[9px] font-black">Guruhlar</span>
-        </button>
-        
-        {/* 2. Chat (O'rtada) + Alert */}
-        <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 text-slate-400 hover:text-indigo-600 relative">
-            <MessageCircle size={24} strokeWidth={2.5} />
-            <span className="text-[9px] font-black">Xabarlar</span>
-            {/* Qizil Nuqta */}
-            {unreadMessages > 0 && (
-                <span className="absolute top-1 right-3 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-            )}
-        </button>
+      {/* 🔥 TUZATILDI: Agar /chat sahifasida bo'lmasa, menyuni ko'rsat */}
+      {location.pathname !== '/chat' && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white/95 backdrop-blur-xl border-t border-slate-200 flex justify-around py-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-[999] shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.05)]">
+          
+          {/* 1. Guruhlar */}
+          <button onClick={() => {triggerHaptic(); setActiveTab('groups');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'groups' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
+              <LayoutGrid size={24} strokeWidth={2.5} />
+              <span className="text-[10px] font-black">Guruhlar</span>
+          </button>
+          
+          {/* 2. Chat Button (Alert bilan) */}
+          <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 text-slate-400 hover:text-indigo-600 relative">
+              <MessageCircle size={24} strokeWidth={2.5} />
+              <span className="text-[10px] font-black">Xabarlar</span>
+              {/* Alert */}
+              {unreadMessages > 0 && (
+                  <span className="absolute top-1 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+              )}
+          </button>
 
-        {/* 3. Qarzdorlar */}
-        <button onClick={() => {triggerHaptic(); setActiveTab('debtors');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'debtors' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
-            <AlertTriangle size={24} strokeWidth={2.5} />
-            <span className="text-[9px] font-black">Qarzdorlar</span>
-        </button>
-      </div>
+          {/* 3. Qarzdorlar */}
+          <button onClick={() => {triggerHaptic(); setActiveTab('debtors');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'debtors' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
+              <AlertTriangle size={24} strokeWidth={2.5} />
+              <span className="text-[10px] font-black">Qarzdorlar</span>
+          </button>
+        </div>
+      )}
 
     </div>
   );
