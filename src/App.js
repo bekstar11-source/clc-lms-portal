@@ -11,6 +11,7 @@ import MobileNavbar from './components/MobileNavbar';
 
 // SAHIFALAR
 import AdminPanel from './pages/AdminPanel';
+import ChatPage from './pages/ChatPage';
 import SprintGame from './pages/SprintGame';
 import SentenceGame from './pages/SentenceGame';
 import GameHub from './pages/GameHub';
@@ -112,6 +113,7 @@ function App() {
           <Route path="/sentence-game" element={user ? <SentenceGame /> : <Navigate to="/login" />} />
 
           {/* O'QITUVCHI VA ADMIN UMUMIY YO'LLARI */}
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/group/:groupId" element={(role === 'teacher' || role === 'admin') ? <GroupDetails /> : <Navigate to="/" />} />
           <Route path="/assignments" element={(role === 'teacher' || role === 'admin') ? <Assignments /> : <Navigate to="/" />} />
           <Route path="/debtors" element={(role === 'teacher' || role === 'admin') ? <Debtors /> : <Navigate to="/" />} />

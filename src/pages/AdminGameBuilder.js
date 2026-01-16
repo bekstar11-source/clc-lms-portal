@@ -85,52 +85,73 @@ const AdminGameBuilder = () => {
     }
   };
 
-  // ================= BULK IMPORT LOGIC =================
+  // ================= 🔥 TUZATILGAN BULK IMPORT LOGIC 🔥 =================
   const handleBulkImport = async () => {
     if (!jsonInput) return alert("Iltimos, JSON kodni kiriting!");
     setActionLoading(true);
 
     try {
-        const parsedData = JSON.parse(jsonInput);
+        let parsedData = JSON.parse(jsonInput);
 
-        if (activeTab === 'scramble') {
-            if (!parsedData.id || !parsedData.title || !parsedData.categories) throw new Error("Scramble JSON xato!");
-            await updateDoc(doc(db, "games", "scramble"), {
-                [`levels.${parsedData.id}`]: {
-                    title: parsedData.title,
-                    description: parsedData.description || "",
-                    xpReward: parsedData.xpReward || 10,
-                    order: Date.now(),
-                    categories: parsedData.categories
-                }
-            });
-        } else if (activeTab === 'sprint') {
-            if (!parsedData.id || !parsedData.title || !parsedData.questions) throw new Error("Sprint JSON xato!");
-            await updateDoc(doc(db, "games", "sprint"), {
-                [`levels.${parsedData.id}`]: {
-                    title: parsedData.title,
-                    baseTime: parsedData.baseTime || 10,
-                    xpReward: parsedData.xpReward || 10,
-                    color: "from-indigo-500 to-purple-600",
-                    order: Date.now(),
-                    questions: parsedData.questions
-                }
-            });
-        } else if (activeTab === 'sentence') {
-            if (!parsedData.id || !parsedData.title || !parsedData.sentences) throw new Error("Sentence JSON xato!");
-            await updateDoc(doc(db, "games", "sentence_builder"), {
-                [`levels.${parsedData.id}`]: {
-                    title: parsedData.title,
-                    description: parsedData.description || "",
-                    xpReward: parsedData.xpReward || 15,
-                    color: "from-emerald-400 to-teal-600",
-                    order: Date.now(),
-                    sentences: parsedData.sentences
-                }
-            });
+        // Agar user array (ro'yxat) tashlasa ham, bitta obyekt tashlasa ham ishlaydigan qilamiz
+        if (!Array.isArray(parsedData)) {
+            parsedData = [parsedData];
         }
 
-        alert("Muvaffaqiyatli yuklandi!");
+        const updates = {};
+        
+        parsedData.forEach(item => {
+            if (!item.id) return; // ID bo'lmasa o'tkazib yuboramiz
+
+            if (activeTab === 'scramble') {
+                if (!item.title || !item.categories) return;
+                updates[`levels.${item.id}`] = {
+                    title: item.title,
+                    description: item.description || "",
+                    xpReward: item.xpReward || 10,
+                    order: Date.now(),
+                    categories: item.categories
+                };
+            } else if (activeTab === 'sprint') {
+                if (!item.title || !item.questions) return;
+                updates[`levels.${item.id}`] = {
+                    title: item.title,
+                    baseTime: item.baseTime || 10,
+                    xpReward: item.xpReward || 10,
+                    color: "from-indigo-500 to-purple-600",
+                    order: Date.now(),
+                    questions: item.questions
+                };
+            } else if (activeTab === 'sentence') {
+                if (!item.title || !item.sentences) return;
+                updates[`levels.${item.id}`] = {
+                    title: item.title,
+                    description: item.description || "",
+                    xpReward: item.xpReward || 15,
+                    color: "from-emerald-400 to-teal-600",
+                    order: Date.now(),
+                    sentences: item.sentences
+                };
+            }
+        });
+
+        if (Object.keys(updates).length === 0) {
+            throw new Error("JSON ichida to'g'ri ma'lumot topilmadi (id, title bo'lishi shart).");
+        }
+
+        const collectionMap = { 'scramble': 'scramble', 'sprint': 'sprint', 'sentence': 'sentence_builder' };
+        const gameRef = doc(db, "games", collectionMap[activeTab]);
+
+        // Avval hujjat borligini tekshiramiz
+        const docSnap = await getDoc(gameRef);
+        if (!docSnap.exists()) {
+            await setDoc(gameRef, { levels: {} });
+        }
+
+        // updateDoc ishlatamiz, bu eski levelarga tegmaydi, faqat yangisini qo'shadi
+        await updateDoc(gameRef, updates);
+
+        alert("Muvaffaqiyatli yuklandi! Eski o'yinlar saqlab qolindi.");
         setJsonInput('');
         fetchAllGames();
 
@@ -143,22 +164,22 @@ const AdminGameBuilder = () => {
 
   const getExampleJson = () => {
       if (activeTab === 'scramble') {
-          return JSON.stringify({
+          return JSON.stringify([{
             "id": "beginner_level", "title": "Beginner", "description": "Start here", "xpReward": 15,
             "categories": { "animals": { "title": "Hayvonlar", "icon": "Brain", "words": [{ "word": "CAT", "translation": "Mushuk" }] } }
-          }, null, 2);
+          }], null, 2);
       } else if (activeTab === 'sprint') {
-          return JSON.stringify({
+          return JSON.stringify([{
             "id": "ielts_expert", "title": "Expert", "baseTime": 8, "xpReward": 20,
             "questions": [{ "q": "Synonym of 'Happy'?", "a": "Joyful", "options": ["Sad", "Joyful"] }]
-          }, null, 2);
+          }], null, 2);
       } else {
-          return JSON.stringify({
+          return JSON.stringify([{
             "id": "intermediate_b1", "title": "Intermediate B1", "description": "Zamonlar", "xpReward": 30,
             "sentences": [
                 { "id": "s1", "parts": ["I", "have", "been", "waiting"], "translation": "Men kutayotgan edim" }
             ]
-          }, null, 2);
+          }], null, 2);
       }
   }
 

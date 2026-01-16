@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // 👈 YANGI: Sahifaga o'tish uchun
+import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
 import { signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { 
@@ -9,8 +9,11 @@ import {
   ShieldCheck, Search, Loader2, LogOut, ChevronDown, 
   LayoutGrid, Plus, UserPlus, Users, Filter, CheckCircle, Trash2,
   BarChart3, Megaphone, Key, Pencil, X, Target, Sparkles, Layers, GraduationCap, Briefcase,
-  Gamepad2 // 👈 YANGI: O'yin ikonkasi
+  Gamepad2, MessageCircle // 👈 YANGI: Chat ikonkasi qo'shildi
 } from 'lucide-react';
+
+// 🔥 SystemHealth komponenti
+import SystemHealth from '../components/SystemHealth'; 
 
 // Yordamchi komponent: Gradient Matn
 const GradientText = ({ children, from, to }) => (
@@ -20,7 +23,7 @@ const GradientText = ({ children, from, to }) => (
 );
 
 const AdminPanel = () => {
-  const navigate = useNavigate(); // 👈 YANGI: Hook chaqirildi
+  const navigate = useNavigate();
 
   // --- TABS & FILTERS ---
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -191,8 +194,15 @@ const AdminPanel = () => {
             </div>
           </div>
 
-          {/* 🔥 NAVIGATSIYA TUGMALARI (YANGI QO'SHILDI) */}
+          {/* 🔥 NAVIGATSIYA TUGMALARI */}
           <div className="flex gap-2">
+             <button 
+                onClick={() => navigate('/chat')} 
+                className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50"
+             >
+                <MessageCircle size={18} /> Xabarlar
+             </button>
+
              <button 
                 onClick={() => navigate('/admin/game-builder')} 
                 className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50"
@@ -259,17 +269,21 @@ const AdminPanel = () => {
           
         {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
-            <div className="p-16 text-center flex flex-col items-center justify-center bg-gradient-to-b from-white/0 to-slate-50/50 rounded-[3rem]">
-                <div className="bg-indigo-50 p-6 rounded-full mb-6 shadow-inner-lg"><BarChart3 className="text-indigo-400" size={80}/></div>
-                <h3 className="text-3xl font-black text-slate-800 mb-2">Xush kelibsiz, <GradientText from="from-indigo-600" to="to-purple-500">Admin!</GradientText></h3>
-                <p className="text-slate-500 font-medium max-w-md mx-auto">Tizim barqaror. Yangi o'quvchilarni tekshirish va guruhlarga biriktirishni unutmang.</p>
+            <div className="p-8">
+                {/* Tizim tekshiruvchisi */}
+                <SystemHealth />
+
+                <div className="p-16 text-center flex flex-col items-center justify-center bg-gradient-to-b from-white/0 to-slate-50/50 rounded-[3rem] mt-4">
+                    <div className="bg-indigo-50 p-6 rounded-full mb-6 shadow-inner-lg"><BarChart3 className="text-indigo-400" size={80}/></div>
+                    <h3 className="text-3xl font-black text-slate-800 mb-2">Xush kelibsiz, <GradientText from="from-indigo-600" to="to-purple-500">Admin!</GradientText></h3>
+                    <p className="text-slate-500 font-medium max-w-md mx-auto">Tizim barqaror. Yangi o'quvchilarni tekshirish va guruhlarga biriktirishni unutmang.</p>
+                </div>
             </div>
         )}
 
         {/* STUDENTS TAB */}
         {activeTab === 'students' && (
            <div>
-              {/* Filter */}
               <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 rounded-t-[3rem]">
                  <div className="flex bg-white/70 p-1.5 rounded-2xl shadow-sm border border-white/50">
                     <button onClick={() => setStudentFilter('new')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${studentFilter==='new'?'bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-md':'text-slate-500 hover:bg-white'}`}><UserPlus size={14}/> Yangi ({stats.newStudents})</button>
@@ -282,14 +296,12 @@ const AdminPanel = () => {
                  </div>
               </div>
 
-              {/* Users List */}
               <div className="p-6 bg-slate-50/30 min-h-[500px] max-h-[70vh] overflow-y-auto custom-scrollbar space-y-3 rounded-b-[3rem]">
                  {displayedStudents.length === 0 ? <div className="text-center py-20 text-slate-400 font-bold italic">Foydalanuvchilar topilmadi.</div> : 
                  displayedStudents.map(user => {
                    const isNew = !user.groupId;
                    return (
                     <div key={user.id} className={`flex flex-col md:flex-row md:items-center justify-between p-5 rounded-[2rem] border shadow-sm transition-all hover:-translate-y-1 hover:shadow-md group ${isNew ? 'bg-gradient-to-r from-rose-50/80 to-white border-rose-100' : 'bg-white border-slate-100'}`}>
-                       
                        <div className="flex items-center gap-4 mb-4 md:mb-0">
                           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-xl shadow-sm ${isNew ? 'bg-gradient-to-br from-rose-400 to-orange-400 text-white' : 'bg-gradient-to-br from-slate-200 to-slate-300 text-slate-600'}`}>
                               {user.name?.charAt(0)}
@@ -332,7 +344,6 @@ const AdminPanel = () => {
         {/* GROUPS TAB */}
         {activeTab === 'groups' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
-              {/* Create Group */}
               <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-8 rounded-[2.5rem] shadow-lg shadow-emerald-100/50 border border-emerald-100 h-fit relative overflow-hidden">
                   <div className="absolute top-0 right-0 -mt-4 -mr-4 text-emerald-200 opacity-50"><Layers size={100}/></div>
                   <h3 className="text-lg font-black text-emerald-800 mb-6 flex items-center gap-3 relative z-10">
@@ -344,7 +355,6 @@ const AdminPanel = () => {
                   </form>
               </div>
 
-              {/* Groups List */}
               <div className="lg:col-span-2 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
                   {groups.map(g => {
                     const hasTeacher = !!g.teacherId;
@@ -431,8 +441,6 @@ const AdminPanel = () => {
                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Ism Familiya</label>
                              <input className="w-full px-5 py-4 bg-slate-50/80 rounded-2xl font-bold text-sm outline-none border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="To'liq ism..."/>
                           </div>
-
-                          {/* 🆕 ROLE SELECT */}
                           <div>
                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block flex items-center gap-1"><Briefcase size={12}/> Foydalanuvchi Roli</label>
                              <div className="relative">
@@ -444,7 +452,6 @@ const AdminPanel = () => {
                                <ChevronDown size={16} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
                              </div>
                           </div>
-
                           <button className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:shadow-xl hover:scale-[1.02] transition-all active:scale-95">Saqlash</button>
                       </form>
                    </div>
