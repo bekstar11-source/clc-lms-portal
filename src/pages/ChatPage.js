@@ -9,9 +9,9 @@ import {
   Loader2, CheckCheck, Trash2, Paperclip, Smile 
 } from 'lucide-react';
 
-// --- YORDAMCHI FUNKSIYALAR (XATOLIKLAR OLDINI OLISH UCHUN) ---
+// --- YORDAMCHI FUNKSIYALAR ---
 const formatDateGroup = (timestamp) => {
-  if (!timestamp || !timestamp.toDate) return "Yangi"; // Agar vaqt bo'lmasa
+  if (!timestamp || !timestamp.toDate) return "Yangi";
   const date = timestamp.toDate();
   const now = new Date();
   const yesterday = new Date(now);
@@ -40,7 +40,7 @@ const ChatPage = () => {
   
   const scrollRef = useRef();
 
-  // 1. FOYDALANUVCHINI ANIQLASH VA CHATLARNI TINGLASH
+  // 1. INIT
   useEffect(() => {
     let unsubscribeChats = null;
 
@@ -50,19 +50,15 @@ const ChatPage = () => {
 
       try {
         const userDoc = await getDoc(doc(db, "students", user.uid));
-        // Agar student bazasida bo'lmasa, demak u Teacher yoki Admin bo'lishi mumkin, lekin auth.uid bor
         const userData = userDoc.exists() ? { ...userDoc.data(), uid: user.uid } : { uid: user.uid, role: 'unknown' };
         setCurrentUser(userData);
 
-        // A) STATIC CONTACT LIST (Barcha mumkin bo'lgan suhbatdoshlar)
         let contactList = [];
         if (userData.role === 'teacher' || userData.role === 'admin') {
-            // O'qituvchi barcha o'quvchilarni ko'radi
             const q = query(collection(db, "students"), where("role", "==", "student"));
             const snap = await getDocs(q);
             contactList = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
         } else {
-            // O'quvchi faqat o'z o'qituvchisini ko'radi
             if (userData.groupId) {
             const groupSnap = await getDoc(doc(db, "groups", userData.groupId));
             if (groupSnap.exists() && groupSnap.data().teacherId) {
@@ -72,8 +68,6 @@ const ChatPage = () => {
             }
         }
 
-        // B) CHATLARNI TINGLASH (REALTIME)
-        // Agar contactList bo'sh bo'lsa, hech narsa qilmaymiz
         if (contactList.length === 0) {
             setUsers([]);
             setFilteredUsers([]);
@@ -89,7 +83,6 @@ const ChatPage = () => {
                 chatsMap[doc.id] = doc.data();
             });
 
-            // Ro'yxatni birlashtirish
             const mergedList = contactList.map(contact => {
                 const chatId = user.uid > contact.uid 
                     ? `${user.uid}_${contact.uid}` 
@@ -100,23 +93,15 @@ const ChatPage = () => {
                 return {
                     ...contact,
                     lastMessage: chatInfo?.lastMessage || "",
-                    // 🔥 TUZATISH: Agar vaqt yo'q bo'lsa 0 qo'yamiz (Crash bo'lmasligi uchun)
                     lastUpdated: chatInfo?.lastUpdated?.seconds || 0, 
                     unread: chatInfo?.unreadCounts?.[user.uid] || 0
                 };
             });
 
-            // Saralash (Eng yangisi tepada)
             mergedList.sort((a, b) => b.lastUpdated - a.lastUpdated);
 
             setUsers(mergedList);
             setFilteredUsers(mergedList);
-            setLoading(false);
-        }, (error) => {
-            console.error("Chatlarni yuklashda xato:", error);
-            // Index xatosi bo'lsa ham contactListni ko'rsatib turish kerak
-            setUsers(contactList);
-            setFilteredUsers(contactList);
             setLoading(false);
         });
 
@@ -133,7 +118,7 @@ const ChatPage = () => {
     };
   }, []);
 
-  // 2. QIDIRUV
+  // 2. SEARCH
   useEffect(() => {
     if (searchQuery.trim() === "") {
       setFilteredUsers(users);
@@ -143,7 +128,7 @@ const ChatPage = () => {
     }
   }, [searchQuery, users]);
 
-  // 3. CHAT OCHILGANDA
+  // 3. CHAT LOAD & READ
   useEffect(() => {
     if (!selectedUser || !currentUser) return;
     
@@ -151,27 +136,36 @@ const ChatPage = () => {
       ? `${currentUser.uid}_${selectedUser.uid}` 
       : `${selectedUser.uid}_${currentUser.uid}`;
 
-    // O'qilgan deb belgilash
-    updateDoc(doc(db, "chats", chatId), {
-        [`unreadCounts.${currentUser.uid}`]: 0
-    }).catch(() => {}); // Xato bersa parvo qilmaymiz (yangi chatda doc bo'lmaydi)
+    // 🔥 O'QILDI DEB BELGILASH (RESET UNREAD)
+    // Bu yerda unreadCounts.MeningIDim ni 0 ga tushiramiz
+    const resetUnread = async () => {
+        try {
+            const chatRef = doc(db, "chats", chatId);
+            const chatSnap = await getDoc(chatRef);
+            if (chatSnap.exists()) {
+                await updateDoc(chatRef, {
+                    [`unreadCounts.${currentUser.uid}`]: 0
+                });
+            }
+        } catch (e) {
+            console.log("Chat hali yaratilmagan, o'qish shart emas");
+        }
+    };
+    resetUnread();
 
     const messagesRef = collection(db, "chats", chatId, "messages");
-    // 🔥 DIQQAT: Agar Console da "Index required" desa, o'sha linkga bosing!
     const q = query(messagesRef, orderBy("createdAt", "asc"));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMessages(msgs);
       setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    }, (error) => {
-        console.log("Message Listener Error:", error);
     });
 
     return () => unsubscribe();
   }, [selectedUser, currentUser]);
 
-  // 4. XABAR YUBORISH
+  // 4. SEND MESSAGE (🔥 TUZATILGAN JOY)
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedUser) return;
@@ -181,14 +175,30 @@ const ChatPage = () => {
       : `${selectedUser.uid}_${currentUser.uid}`;
 
     try {
-      // Chat ma'lumotlarini yangilash
-      await setDoc(doc(db, "chats", chatId), {
-         participants: [currentUser.uid, selectedUser.uid],
-         lastMessage: newMessage,
-         lastUpdated: serverTimestamp(),
-         [`unreadCounts.${selectedUser.uid}`]: increment(1), // Suhbatdoshga +1
-         [`unreadCounts.${currentUser.uid}`]: 0 // Menga 0
-      }, { merge: true });
+      const chatRef = doc(db, "chats", chatId);
+      const chatSnap = await getDoc(chatRef);
+
+      // Agar chat oldin bor bo'lsa -> UPDATE qilamiz
+      if (chatSnap.exists()) {
+          await updateDoc(chatRef, {
+             lastMessage: newMessage,
+             lastUpdated: serverTimestamp(),
+             // Suhbatdoshga +1, Menga o'zgarishsiz (yoki 0)
+             [`unreadCounts.${selectedUser.uid}`]: increment(1)
+          });
+      } 
+      // Agar chat yangi bo'lsa -> SET qilamiz (Toza obyekt bilan)
+      else {
+          await setDoc(chatRef, {
+             participants: [currentUser.uid, selectedUser.uid],
+             lastMessage: newMessage,
+             lastUpdated: serverTimestamp(),
+             unreadCounts: {
+                 [selectedUser.uid]: 1, // Suhbatdoshda 1 ta o'qilmagan
+                 [currentUser.uid]: 0   // Menda 0 ta
+             }
+          });
+      }
 
       // Xabarni qo'shish
       await addDoc(collection(db, "chats", chatId, "messages"), {
@@ -197,10 +207,13 @@ const ChatPage = () => {
         createdAt: serverTimestamp(),
       });
       setNewMessage("");
-    } catch (error) { console.error("Send Error:", error); }
+    } catch (error) { 
+        console.error("Send Error:", error); 
+        alert("Xabar yuborishda xatolik: " + error.message);
+    }
   };
 
-  // 5. XABARNI O'CHIRISH
+  // 5. DELETE
   const handleDeleteMessage = async (messageId) => {
     if(!window.confirm("Xabarni o'chirasizmi?")) return;
     const chatId = currentUser.uid > selectedUser.uid 
