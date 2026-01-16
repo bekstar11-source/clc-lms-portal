@@ -40,7 +40,7 @@ const ChatPage = () => {
   
   const scrollRef = useRef();
 
-  // 1. Barcha o'quvchilarni yuklash
+  // 1. FOYDALANUVCHILARNI YUKLASH (ROLE BO'YICHA FILTRLASH)
   useEffect(() => {
     let unsubscribe = null;
 
@@ -49,36 +49,53 @@ const ChatPage = () => {
       if (!user) return;
 
       try {
-        // Hozirgi user ma'lumotlari
+        // 1. Hozirgi foydalanuvchi ma'lumotlarini olish
         const userDoc = await getDoc(doc(db, "students", user.uid));
-        const userData = userDoc.exists() ? { ...userDoc.data(), uid: user.uid } : { uid: user.uid };
+        
+        // Agar user bazada bo'lmasa, default rol beramiz
+        const userData = userDoc.exists() 
+            ? { ...userDoc.data(), uid: user.uid } 
+            : { uid: user.uid, role: 'student' }; // Default student deb faraz qilamiz
+        
         setCurrentUser(userData);
 
-        // 🔥 O'ZGARISH: HECH QANDAY SHARTSIZ BARCHA O'QUVCHILARNI OLISH
-        // "students" kolleksiyasidagi barcha hujjatlarni olamiz
-        const qAll = query(collection(db, "students"));
-        const snapAll = await getDocs(qAll);
-        
-        // O'zimdan boshqa barcha userlar
-        const allContacts = snapAll.docs
-          .map(d => ({ uid: d.id, ...d.data() }))
-          .filter(u => u.uid !== user.uid); // O'zimni ro'yxatdan chiqarib tashlash
+        let qUsers;
 
-        if (allContacts.length === 0) {
+        // 🔥 LOGIKA O'ZGARDI: KIM KIMNI KO'RADI?
+        if (userData.role === 'student') {
+            // ✅ O'QUVCHI: Faqat Teacher va Adminlarni ko'radi
+            qUsers = query(
+                collection(db, "students"), 
+                where("role", "in", ["teacher", "admin"])
+            );
+        } else {
+            // ✅ TEACHER/ADMIN: Faqat O'quvchilarni ko'radi
+            qUsers = query(
+                collection(db, "students"), 
+                where("role", "==", "student")
+            );
+        }
+
+        const snapUsers = await getDocs(qUsers);
+        
+        // Ro'yxatni shakllantiramiz (O'zini chiqarib tashlash shart emas, chunki rollar har xil)
+        const contactList = snapUsers.docs.map(d => ({ uid: d.id, ...d.data() }));
+
+        if (contactList.length === 0) {
             setUsers([]);
             setFilteredUsers([]);
             setLoading(false);
             return;
         }
 
-        // Real vaqtda chatlarni tinglash
+        // 2. Real vaqtda chatlarni tinglash (Last Message & Unread uchun)
         const qChats = query(collection(db, "chats"), where("participants", "array-contains", user.uid));
         
         unsubscribe = onSnapshot(qChats, (snapshot) => {
             const chatsData = {};
             snapshot.docs.forEach(doc => chatsData[doc.id] = doc.data());
 
-            const detailedUsers = allContacts.map(contact => {
+            const detailedUsers = contactList.map(contact => {
                 const chatId = user.uid > contact.uid 
                     ? `${user.uid}_${contact.uid}` 
                     : `${contact.uid}_${user.uid}`;
@@ -86,15 +103,15 @@ const ChatPage = () => {
                 const chat = chatsData[chatId];
                 return {
                     ...contact,
-                    // Agar ismi bo'lmasa Emailini chiqarish
-                    name: contact.name || contact.email || "Noma'lum foydalanuvchi",
+                    // Agar ismi bo'lmasa Email yoki Rolini chiqarish
+                    name: contact.name || contact.email || (contact.role === 'teacher' ? "O'qituvchi" : "Admin"),
                     lastMessage: chat?.lastMessage || "",
                     lastUpdated: chat?.lastUpdated?.seconds || 0,
                     unread: chat?.unreadCounts?.[user.uid] || 0
                 };
             });
 
-            // Chatlashganlar tepada, chatlashmaganlar pastda
+            // Chatlashganlar (yangi xabar borlar) eng tepada turadi
             detailedUsers.sort((a, b) => b.lastUpdated - a.lastUpdated);
             
             setUsers(detailedUsers);
@@ -103,7 +120,7 @@ const ChatPage = () => {
         });
 
       } catch (err) {
-          console.error(err);
+          console.error("Xatolik:", err);
           setLoading(false);
       }
     };
@@ -122,7 +139,7 @@ const ChatPage = () => {
     }
   }, [searchQuery, users]);
 
-  // 3. Chat tanlanganda
+  // 3. Chat tanlanganda (Read qilish va Xabarlarni yuklash)
   useEffect(() => {
     if (!selectedUser || !currentUser) return;
 
@@ -201,7 +218,7 @@ const ChatPage = () => {
   return (
     <div className="flex h-[100dvh] bg-white overflow-hidden fixed inset-0 font-sans">
       
-      {/* --- SIDEBAR (BARCHA O'QUVCHILAR) --- */}
+      {/* --- SIDEBAR (CHATLAR RO'YXATI) --- */}
       <div className={`w-full md:w-80 lg:w-96 flex flex-col bg-white border-r border-gray-200 transition-transform duration-300 z-20 ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
         
         {/* Header */}
@@ -287,6 +304,7 @@ const ChatPage = () => {
                  
                  return (
                    <div key={msg.id}>
+                      {/* Date Divider */}
                       {showDate && (
                         <div className="flex justify-center my-4 sticky top-2 z-20">
                            <span className="bg-black/20 text-white text-xs font-bold px-3 py-1 rounded-full backdrop-blur-sm shadow-sm">
@@ -303,9 +321,15 @@ const ChatPage = () => {
                             }`}
                          >
                             <p className="break-words leading-snug whitespace-pre-wrap pr-8 pb-1">{msg.text}</p>
+                            
+                            {/* Time & Status */}
                             <div className="float-right flex items-center gap-1 ml-2 -mt-1 opacity-70 select-none">
                                <span className="text-[10px] font-medium text-gray-500">{formatTime(msg.createdAt)}</span>
-                               {isMe && <CheckCheck size={14} className="text-blue-500" strokeWidth={2.5}/>}
+                               {isMe && (
+                                 <div className="text-blue-500">
+                                   <CheckCheck size={14} strokeWidth={2.5}/>
+                                 </div>
+                               )}
                             </div>
                          </div>
                       </div>
@@ -348,6 +372,7 @@ const ChatPage = () => {
             </div>
           </>
         ) : (
+          /* Empty State */
           <div className="flex-1 flex flex-col items-center justify-center text-gray-500 z-10 select-none">
              <div className="bg-black/10 p-4 rounded-full mb-4">
                 <span className="text-4xl">💬</span>
