@@ -7,7 +7,7 @@ import {
 import { 
   LayoutGrid, Sparkles, BookOpen, ChevronRight,
   CheckCircle2, XCircle, AlertTriangle, 
-  Bell, Search, ArrowRight, MessageCircle 
+  Bell, Search, ArrowRight, MessageCircle, RefreshCw, Loader2
 } from 'lucide-react';
 
 // --- SKELETON LOADER ---
@@ -23,14 +23,14 @@ const DashboardSkeleton = () => (
 
 const TeacherDashboard = () => {
   const navigate = useNavigate();
-  const location = useLocation(); // 👈 Hozirgi manzilni olish uchun kerak
+  const location = useLocation(); 
   const [teacherName, setTeacherName] = useState('');
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  
   const [retakeAlerts, setRetakeAlerts] = useState([]);
   const [debtors, setDebtors] = useState([]);
-  
-  // 🔥 O'qilmagan xabarlar soni
   const [unreadMessages, setUnreadMessages] = useState(0);
   
   const [activeTab, setActiveTab] = useState('groups');
@@ -47,94 +47,160 @@ const TeacherDashboard = () => {
     else setActiveTab('groups');
   }, [location.pathname]);
 
-  // 1. MA'LUMOTLARNI YUKLASH
-  useEffect(() => {
-    const fetchData = async () => {
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
+  // 1. 🔥 MA'LUMOTLARNI YUKLASH (YANGILANGAN MANTIQ BILAN)
+  const fetchData = async (forceRefresh = false) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    if (forceRefresh) setRefreshing(true);
+
+    try {
+      const CACHE_KEY = `teacher_dash_${currentUser.uid}`;
+      const cached = localStorage.getItem(CACHE_KEY);
+
+      // KESHNI TEKSHIRISH
+      if (!forceRefresh && cached) {
+          const { data, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < 10 * 60 * 1000) {
+              setTeacherName(data.teacherName);
+              setGroups(data.groups);
+              setRetakeAlerts(data.retakeAlerts);
+              setDebtors(data.debtors);
+              setLoading(false);
+              setRefreshing(false);
+              return;
+          }
+      }
+
+      // BAZADAN YUKLASH
+      const userRef = doc(db, "students", currentUser.uid);
+      const groupsQuery = query(collection(db, "groups"), where("teacherId", "==", currentUser.uid));
       
-      try {
-        const userRef = doc(db, "students", currentUser.uid);
-        const groupsQuery = query(collection(db, "groups"), where("teacherId", "==", currentUser.uid));
-        
-        const [userDoc, groupsSnap] = await Promise.all([
-            getDoc(userRef),
-            getDocs(groupsQuery)
-        ]);
+      const [userDoc, groupsSnap] = await Promise.all([
+          getDoc(userRef),
+          getDocs(groupsQuery)
+      ]);
 
-        if (userDoc.exists()) setTeacherName(userDoc.data().name);
-        const fetchedGroups = groupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setGroups(fetchedGroups);
+      let tName = '';
+      if (userDoc.exists()) {
+          tName = userDoc.data().name;
+          setTeacherName(tName);
+      }
+      
+      const fetchedGroups = groupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setGroups(fetchedGroups);
 
-        const groupsDataPromises = fetchedGroups.map(async (grp) => {
-            const qStudents = query(collection(db, "students"), where("groupId", "==", grp.id));
-            const qGrades = query(collection(db, "grades"), where("groupId", "==", grp.id));
-            const [studSnap, gradesSnap] = await Promise.all([getDocs(qStudents), getDocs(qGrades)]);
-            return {
-                groupName: grp.name,
-                groupId: grp.id,
-                students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-                grades: gradesSnap.docs.map(d => d.data()),
-                gradeDocs: gradesSnap.docs
-            };
-        });
+      // PARALLEL YUKLASH
+      const groupsDataPromises = fetchedGroups.map(async (grp) => {
+          const qStudents = query(collection(db, "students"), where("groupId", "==", grp.id));
+          const qGrades = query(collection(db, "grades"), where("groupId", "==", grp.id));
+          const qLessons = query(collection(db, "lessons"), where("groupId", "==", grp.id)); // 🔥 Darslarni ham yuklaymiz
 
-        const allGroupsData = await Promise.all(groupsDataPromises);
+          const [studSnap, gradesSnap, lessonsSnap] = await Promise.all([
+              getDocs(qStudents), 
+              getDocs(qGrades),
+              getDocs(qLessons)
+          ]);
 
-        let alerts = [];
-        let allDebtors = [];
+          return {
+              groupName: grp.name,
+              groupId: grp.id,
+              students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+              grades: gradesSnap.docs.map(d => d.data()),
+              gradeDocs: gradesSnap.docs,
+              lessons: lessonsSnap.docs.map(d => ({ id: d.id, ...d.data() })) // 🔥 Darslar
+          };
+      });
 
-        allGroupsData.forEach(({ groupName, groupId, students, grades, gradeDocs }) => {
-            const studentsMap = {};
-            students.forEach(s => studentsMap[s.id] = s.name);
+      const allGroupsData = await Promise.all(groupsDataPromises);
 
-            // Retakes logic
-            gradeDocs.forEach(d => {
-                const g = d.data();
-                if (g.status === 'retake_submitted') {
-                    alerts.push({ 
-                        id: d.id, 
-                        studentName: studentsMap[g.studentId] || 'Unknown', 
-                        groupName: groupName, 
-                        topic: g.comment,
-                        groupId: groupId, 
-                        studentId: g.studentId,
-                        highlightKey: `${g.lessonId}_${g.taskType}`,
-                        date: g.date ? g.date.toDate() : new Date()
-                    });
-                }
-            });
+      let alerts = [];
+      let allDebtors = [];
 
-            // Debtors logic
-            students.forEach(student => {
-                const studentGrades = grades.filter(g => g.studentId === student.id);
-                const validGrades = studentGrades.map(g => Number(g.score)).filter(s => !isNaN(s));
-                let average = 0;
-                if (validGrades.length > 0) average = Math.round(validGrades.reduce((a, b) => a + b, 0) / validGrades.length);
+      allGroupsData.forEach(({ groupName, groupId, students, grades, gradeDocs, lessons }) => {
+          const studentsMap = {};
+          students.forEach(s => studentsMap[s.id] = s.name);
 
-                if (average < 60 && validGrades.length > 0) {
-                    allDebtors.push({
-                        id: student.id,
-                        name: student.name,
-                        groupId: groupId,
-                        groupName: groupName,
-                        averageScore: average,
-                        avatarSeed: student.avatarSeed
-                    });
-                }
-            });
-        });
+          // 1. RETAKES
+          gradeDocs.forEach(d => {
+              const g = d.data();
+              if (g.status === 'retake_submitted') {
+                  alerts.push({ 
+                      id: d.id, 
+                      studentName: studentsMap[g.studentId] || 'Unknown', 
+                      groupName: groupName, 
+                      topic: g.comment,
+                      groupId: groupId, 
+                      studentId: g.studentId,
+                      highlightKey: `${g.lessonId}_${g.taskType}`,
+                      date: g.date ? g.date.toDate().toISOString() : new Date().toISOString()
+                  });
+              }
+          });
 
-        setRetakeAlerts(alerts.sort((a,b) => b.date - a.date));
-        setDebtors(allDebtors.sort((a, b) => a.averageScore - b.averageScore));
+          // 🔥 2. DEBTORS (YANGILANGAN FORMULA)
+          // Faqat active (qoldirilmagan) darslarni sanaymiz
+          const activeLessons = lessons.filter(l => !l.isDelayed);
+          
+          if (activeLessons.length > 0) {
+              students.forEach(student => {
+                  const studentGrades = grades.filter(g => g.studentId === student.id);
+                  let totalScore = 0;
 
-      } catch (error) { console.error(error); } 
-      finally { setLoading(false); }
-    };
-    fetchData();
+                  // Har bir active dars uchun bahoni tekshiramiz
+                  activeLessons.forEach(lesson => {
+                      const grade = studentGrades.find(g => g.lessonId === lesson.id);
+                      if (grade) {
+                          totalScore += Number(grade.score) || 0;
+                      } else {
+                          totalScore += 0; // Topshirmagan = 0
+                      }
+                  });
+
+                  // O'rtacha = Jami Ball / Jami Darslar
+                  const average = Math.round(totalScore / activeLessons.length);
+
+                  // Agar 60 dan past bo'lsa - QARZDOR
+                  if (average < 60) {
+                      allDebtors.push({
+                          id: student.id,
+                          name: student.name,
+                          groupId: groupId,
+                          groupName: groupName,
+                          averageScore: average,
+                          avatarSeed: student.avatarSeed
+                      });
+                  }
+              });
+          }
+      });
+
+      const sortedAlerts = alerts.sort((a,b) => new Date(b.date) - new Date(a.date));
+      const sortedDebtors = allDebtors.sort((a, b) => a.averageScore - b.averageScore);
+
+      setRetakeAlerts(sortedAlerts);
+      setDebtors(sortedDebtors);
+
+      const cacheData = {
+          teacherName: tName,
+          groups: fetchedGroups,
+          retakeAlerts: sortedAlerts,
+          debtors: sortedDebtors
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ data: cacheData, timestamp: Date.now() }));
+
+    } catch (error) { console.error(error); } 
+    finally { 
+        setLoading(false); 
+        setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+      fetchData();
   }, []);
 
-  // 2. 🔥 REALTIME CHAT ALERTS
+  // 2. REALTIME CHAT ALERTS
   useEffect(() => {
     if (!auth.currentUser) return;
 
@@ -157,6 +223,11 @@ const TeacherDashboard = () => {
     return () => unsubscribe();
   }, []);
 
+  const handleForceRefresh = () => {
+      triggerHaptic();
+      fetchData(true);
+  };
+
   const handleAlertClick = (alert) => {
       triggerHaptic();
       navigate(`/group/${alert.groupId}`, { state: { openStudentId: alert.studentId, highlightKey: alert.highlightKey } });
@@ -168,7 +239,17 @@ const TeacherDashboard = () => {
       if(!window.confirm("Rad etasizmi?")) return;
       try {
           await updateDoc(doc(db, "grades", alertId), { status: 'retake_needed' });
-          setRetakeAlerts(prev => prev.filter(a => a.id !== alertId));
+          const newAlerts = retakeAlerts.filter(a => a.id !== alertId);
+          setRetakeAlerts(newAlerts);
+          
+          const CACHE_KEY = `teacher_dash_${auth.currentUser.uid}`;
+          const cached = localStorage.getItem(CACHE_KEY);
+          if (cached) {
+              const { data, timestamp } = JSON.parse(cached);
+              data.retakeAlerts = newAlerts;
+              localStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp }));
+          }
+
           triggerHaptic('success');
       } catch (error) { alert(error.message); }
   };
@@ -192,7 +273,13 @@ const TeacherDashboard = () => {
          </div>
 
          <div className="flex items-center gap-3">
-             {/* Desktop Chat Button */}
+             <button 
+                onClick={handleForceRefresh} 
+                className={`p-2.5 bg-white text-slate-400 hover:text-indigo-600 rounded-xl shadow-sm border border-slate-100 active:scale-95 transition-all ${refreshing ? 'animate-spin text-indigo-600' : ''}`}
+             >
+                <RefreshCw size={20}/>
+             </button>
+
              <button 
                 onClick={() => {triggerHaptic(); navigate('/chat');}} 
                 className="hidden md:flex p-2.5 bg-white text-slate-400 hover:text-indigo-600 rounded-xl shadow-sm border border-slate-100 active:scale-95 transition-all relative"
@@ -274,7 +361,10 @@ const TeacherDashboard = () => {
                                         <div className="relative"><div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden"><img src={getAvatarUrl(student.avatarSeed || student.name)} className="w-full h-full object-cover" alt="s"/></div></div>
                                         <div className="min-w-0"><h4 className="font-bold text-slate-800 text-sm truncate">{student.name}</h4><span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded truncate max-w-[120px]">{student.groupName}</span></div>
                                     </div>
-                                    <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 shrink-0"><ChevronRight size={16}/></div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg">{student.averageScore}%</span>
+                                        <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 shrink-0"><ChevronRight size={16}/></div>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -285,27 +375,22 @@ const TeacherDashboard = () => {
       </div>
 
       {/* --- TEACHER BOTTOM NAVIGATION (MOBILE) --- */}
-      {/* 🔥 TUZATILDI: Agar /chat sahifasida bo'lmasa, menyuni ko'rsat */}
       {location.pathname !== '/chat' && (
         <div className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white/95 backdrop-blur-xl border-t border-slate-200 flex justify-around py-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-[999] shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.05)]">
           
-          {/* 1. Guruhlar */}
           <button onClick={() => {triggerHaptic(); setActiveTab('groups');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'groups' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
               <LayoutGrid size={24} strokeWidth={2.5} />
               <span className="text-[10px] font-black">Guruhlar</span>
           </button>
           
-          {/* 2. Chat Button (Alert bilan) */}
           <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 text-slate-400 hover:text-indigo-600 relative">
               <MessageCircle size={24} strokeWidth={2.5} />
               <span className="text-[10px] font-black">Xabarlar</span>
-              {/* Alert */}
               {unreadMessages > 0 && (
                   <span className="absolute top-1 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
               )}
           </button>
 
-          {/* 3. Qarzdorlar */}
           <button onClick={() => {triggerHaptic(); setActiveTab('debtors');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'debtors' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
               <AlertTriangle size={24} strokeWidth={2.5} />
               <span className="text-[10px] font-black">Qarzdorlar</span>

@@ -2,13 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
 import { 
   collection, query, where, getDocs, doc, updateDoc, 
-  serverTimestamp, orderBy, addDoc, getDoc
+  serverTimestamp, orderBy, addDoc, getDoc, writeBatch
 } from 'firebase/firestore';
 import { 
   X, Trash2, Edit2, Plus, Star,
   Calendar as CalendarIcon, Users, Loader2, Save, Trophy, BarChart3,
   Target, BookOpen, Sparkles, Zap, RefreshCw, Search, CheckCircle2
 } from 'lucide-react';
+
+// --- HELPER: UUID FOR TASKS ---
+const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const Assignments = () => {
   // --- STATE ---
@@ -34,9 +37,9 @@ const Assignments = () => {
   const [gradingLesson, setGradingLesson] = useState(null);
   const [lessonGrades, setLessonGrades] = useState({});
   const [savingStatus, setSavingStatus] = useState(null);
-  const [studentSearch, setStudentSearch] = useState(''); // 🔥 Added Search State
+  const [studentSearch, setStudentSearch] = useState('');
 
-  // 1. DATA LOADING (WITH CACHE STRATEGY)
+  // 1. DATA LOADING (WITH CACHE STRATEGY & NORMALIZATION)
   useEffect(() => {
     const loadAllData = async (forceRefresh = false) => {
       setPageLoading(true);
@@ -48,7 +51,6 @@ const Assignments = () => {
         const cached = localStorage.getItem('assignmentsCache');
         const cachedTime = localStorage.getItem('assignmentsTime');
         
-        // Cache valid for 5 minutes
         if (cached && cachedTime && (new Date().getTime() - parseInt(cachedTime) < 5 * 60 * 1000)) {
            const parsedData = JSON.parse(cached);
            setGroups(parsedData.groups);
@@ -64,7 +66,7 @@ const Assignments = () => {
         }
       }
 
-      // B) FETCH FROM FIREBASE (Parallel Execution)
+      // B) FETCH FROM FIREBASE
       try {
         const userRef = doc(db, "students", user.uid);
         const userSnap = await getDoc(userRef);
@@ -79,7 +81,6 @@ const Assignments = () => {
 
         const detailsMap = {};
         
-        // Fetch all group details in parallel
         const promises = fetchedGroups.map(async (grp) => {
              const [studSnap, lessonSnap, gradeSnap] = await Promise.all([
                  getDocs(query(collection(db, "students"), where("groupId", "==", grp.id))),
@@ -87,9 +88,20 @@ const Assignments = () => {
                  getDocs(query(collection(db, "grades"), where("groupId", "==", grp.id)))
              ]);
 
+             // 🔥 DATA NORMALIZATION (Tasks ID qo'shish)
+             const normalizedLessons = lessonSnap.docs.map(d => {
+                 const data = d.data();
+                 const tasks = (data.tasks || []).map(t => {
+                     if (typeof t === 'string') return { id: generateId(), text: t, completed: false };
+                     if (!t.id) return { ...t, id: generateId() };
+                     return t;
+                 });
+                 return { id: d.id, ...data, tasks };
+             });
+
              detailsMap[grp.id] = {
                  students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name)),
-                 lessons: lessonSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+                 lessons: normalizedLessons,
                  grades: gradeSnap.docs.map(d => ({ ...d.data(), id: d.id, score: Number(d.data().score) || 0 }))
              };
         });
@@ -141,10 +153,8 @@ const Assignments = () => {
     return stats.sort((a, b) => b.avg - a.avg).slice(0, 3);
   }, [students, allGrades]);
 
-  // Helper: Calculate progress for a lesson
   const getLessonProgress = (lessonId) => {
     if (students.length === 0) return 0;
-    // Count unique students who have at least one grade for this lesson
     const gradedStudentIds = new Set(
         allGrades.filter(g => g.lessonId === lessonId).map(g => g.studentId)
     );
@@ -167,7 +177,7 @@ const Assignments = () => {
     window.location.reload();
   };
 
-  // --- LOCAL CACHE UPDATE (Optimistic) ---
+  // --- LOCAL CACHE UPDATE ---
   const updateCacheLocally = (type, item) => {
       const currentGroupData = cacheData[selectedGroupId];
       if (!currentGroupData) return;
@@ -184,23 +194,23 @@ const Assignments = () => {
 
       const newCache = { ...cacheData, [selectedGroupId]: newData };
       setCacheData(newCache);
-      // Also update local state to reflect immediately
       if(type.includes('grade')) setAllGrades(newData.grades);
       if(type.includes('lesson')) setLessons(newData.lessons);
       
       localStorage.setItem('assignmentsCache', JSON.stringify({ groups, details: newCache }));
   };
 
-  // --- ACTIONS ---
+  // --- MODAL ACTIONS ---
   const openGradingModal = async (lesson) => {
     setGradingLesson(lesson);
-    setStudentSearch(''); // Reset search
+    setStudentSearch('');
     setLessonGrades({});
     
-    // Load from local state
+    // Load existing grades
     const gradesForLesson = allGrades.filter(g => g.lessonId === lesson.id);
     const loadedGrades = {};
     gradesForLesson.forEach(g => {
+        // Use text key for now (backward compatibility)
         loadedGrades[`${g.studentId}_${g.taskType}`] = { score: g.score, docId: g.id };
     });
     setLessonGrades(loadedGrades);
@@ -219,7 +229,6 @@ const Assignments = () => {
   const saveGrade = async (studentId, studentName, taskName, value) => {
     const key = `${studentId}_${taskName}`;
     const currentEntry = lessonGrades[key];
-    // If empty and didn't exist before, don't create empty doc
     if ((value === '' || value === undefined) && !currentEntry?.docId) return;
 
     setSavingStatus('saving');
@@ -227,11 +236,9 @@ const Assignments = () => {
 
     try {
         if (currentEntry?.docId) {
-            // Update existing
             await updateDoc(doc(db, "grades", currentEntry.docId), { score: safeScore, date: serverTimestamp() });
             updateCacheLocally('grade_update', { studentId, taskType: taskName, lessonId: gradingLesson.id, score: safeScore });
         } else {
-            // Create new
             const newDoc = await addDoc(collection(db, "grades"), {
                 studentId, studentName, groupId: selectedGroupId, 
                 lessonId: gradingLesson.id, taskType: taskName, 
@@ -248,16 +255,61 @@ const Assignments = () => {
   const openEditModal = (lesson) => {
     setEditingLesson(lesson);
     setNewTopic(lesson.topic);
-    setNewTasks((lesson.tasks || []).map(t => typeof t === 'string' ? { text: t, completed: false } : t));
+    // Ensure tasks have IDs
+    const tasksWithIds = (lesson.tasks || []).map(t => 
+        t.id ? t : { ...t, id: generateId() }
+    );
+    if (tasksWithIds.length === 0) tasksWithIds.push({ id: generateId(), text: 'Homework', completed: false });
+    setNewTasks(tasksWithIds);
   };
 
+  // --- 🔥 BATCH UPDATE (Vazifa nomi o'zgarsa baholar ham yangilanadi) ---
   const handleUpdate = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
+      const batch = writeBatch(db);
+      
+      // 1. Darsni yangilash
+      const lessonRef = doc(db, "lessons", editingLesson.id);
+      batch.update(lessonRef, { 
+          topic: newTopic, 
+          tasks: newTasks, 
+          updatedAt: serverTimestamp() 
+      });
+
+      // 2. Baholarni tekshirish (Migration)
+      for (const newTask of newTasks) {
+          const oldTask = editingLesson.tasks.find(t => t.id === newTask.id);
+          
+          // Agar nom o'zgargan bo'lsa
+          if (oldTask && oldTask.text !== newTask.text) {
+              const qGrades = query(
+                  collection(db, "grades"), 
+                  where("lessonId", "==", editingLesson.id),
+                  where("taskType", "==", oldTask.text)
+              );
+              const gradesSnap = await getDocs(qGrades);
+              
+              gradesSnap.docs.forEach(gDoc => {
+                  batch.update(doc(db, "grades", gDoc.id), { 
+                      taskType: newTask.text,
+                      comment: newTopic
+                  });
+              });
+          }
+      }
+
+      await batch.commit();
+
+      // Local Cache update (simple refresh is safest here, but lets try update)
       const updatedLesson = { ...editingLesson, topic: newTopic, tasks: newTasks };
-      await updateDoc(doc(db, "lessons", editingLesson.id), { topic: newTopic, tasks: newTasks, updatedAt: serverTimestamp() });
       updateCacheLocally('lesson_update', updatedLesson);
+      
+      // Agar nom o'zgargan bo'lsa, local gradedagi nomlarni ham o'zgartirish kerak,
+      // lekin refreshData qilish ishonchliroq.
+      refreshData(); 
+      
       setEditingLesson(null);
     } catch (e) { alert(e.message); }
     finally { setLoading(false); }
@@ -271,12 +323,9 @@ const Assignments = () => {
     updateCacheLocally('lesson_update', { ...targetLesson, tasks: updatedTasks });
   };
 
-  // Filter students for search in modal
   const filteredStudents = students.filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()));
 
   if (pageLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]"><Loader2 className="animate-spin text-indigo-600"/></div>;
-
-  
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-32 font-sans touch-manipulation">
@@ -357,7 +406,6 @@ const Assignments = () => {
                   </div>
 
                   <div className="flex items-start gap-4">
-                     {/* Date Badge */}
                      <div className="flex flex-col items-center justify-center bg-indigo-50 rounded-2xl p-2 min-w-[4rem] h-16 border border-indigo-100 shrink-0">
                         <span className="text-[9px] font-black text-indigo-400 uppercase">{l.date.split('-')[1]}</span>
                         <span className="text-2xl font-black text-indigo-600 leading-none">{l.date.split('-')[2]}</span>
@@ -366,7 +414,6 @@ const Assignments = () => {
                      <div className="flex-1 min-w-0 pt-1">
                         <h4 className="font-bold text-slate-800 text-sm uppercase leading-tight pr-24 truncate">{l.topic}</h4>
                         
-                        {/* 🔥 Grading Progress Bar */}
                         <div className="mt-2.5 flex items-center gap-2">
                             <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                 <div className={`h-full rounded-full transition-all duration-1000 ${progress === 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }}></div>
@@ -411,20 +458,20 @@ const Assignments = () => {
          </div>
       </div>
 
-      {/* --- GRADING MODAL --- */}
+      {/* --- GRADING MODAL (MOBILE FIXED) --- */}
       {gradingLesson && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-6">
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setGradingLesson(null)}></div>
-          <div className="bg-white rounded-[2rem] w-full max-w-5xl h-[90vh] flex flex-col relative z-10 shadow-2xl overflow-hidden border border-white">
+          {/* 🔥 80dvh va mobilga moslashtirish */}
+          <div className="bg-white w-full max-w-5xl h-[90dvh] sm:h-[90vh] flex flex-col relative z-10 shadow-2xl overflow-hidden border border-white sm:rounded-[2rem] rounded-t-[2rem] mt-auto sm:mt-0 animate-in slide-in-from-bottom duration-300">
             
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50/50 gap-4">
+            <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50/50 gap-4 shrink-0">
                 <div>
                     <h3 className="text-lg font-black text-slate-800 uppercase italic">Gradebook</h3>
                     <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">{gradingLesson.topic}</p>
                 </div>
                 
-                {/* 🔥 Search Bar inside Modal */}
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                     <div className="relative flex-1 sm:w-64">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14}/>
@@ -441,7 +488,7 @@ const Assignments = () => {
             </div>
 
             {/* Status Bar */}
-            <div className="px-6 py-1 bg-white border-b border-slate-50 flex justify-end">
+            <div className="px-6 py-1 bg-white border-b border-slate-50 flex justify-end shrink-0">
                 {savingStatus === 'saving' && <span className="text-[10px] font-black text-orange-500 flex items-center gap-1"><Loader2 size={10} className="animate-spin"/> Autosaving...</span>}
                 {savingStatus === 'saved' && <span className="text-[10px] font-black text-emerald-500 flex items-center gap-1"><CheckCircle2 size={10}/> Saved</span>}
             </div>
@@ -456,7 +503,7 @@ const Assignments = () => {
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-slate-50 pb-[calc(2rem+env(safe-area-inset-bottom))]">
                         {filteredStudents.length === 0 ? (
                             <tr><td colSpan={10} className="p-12 text-center text-slate-400 text-xs italic">O'quvchilar topilmadi</td></tr>
                         ) : (
@@ -501,20 +548,27 @@ const Assignments = () => {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* --- EDIT MODAL (MOBILE FIXED) --- */}
       {editingLesson && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setEditingLesson(null)}></div>
-          <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm relative z-10 shadow-2xl animate-in zoom-in-95 duration-200 border border-white">
-            <h3 className="text-xl font-black text-slate-800 mb-4 uppercase text-center italic">Edit Lesson</h3>
-            <form onSubmit={handleUpdate} className="space-y-4">
+          
+          <div className="bg-white rounded-t-[2rem] sm:rounded-[2rem] w-full max-w-sm h-[80dvh] sm:h-auto relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-200 border border-white flex flex-col mt-auto sm:mt-0 overflow-hidden">
+            
+            {/* Header */}
+            <div className="p-6 shrink-0 border-b border-slate-50">
+               <h3 className="text-xl font-black text-slate-800 uppercase text-center italic">Edit Lesson</h3>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                 <div>
                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Topic</label>
                    <input type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-indigo-500" value={newTopic} onChange={e => setNewTopic(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Tasks</label>
-                  <div className="max-h-40 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
+                  <div className="space-y-2">
                     {newTasks.map((task, idx) => (
                       <div key={idx} className="flex gap-2">
                         <input type="text" className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs outline-none focus:border-indigo-400" value={task.text} onChange={(e) => { const u = [...newTasks]; u[idx].text = e.target.value; setNewTasks(u); }} />
@@ -522,10 +576,16 @@ const Assignments = () => {
                       </div>
                     ))}
                   </div>
-                  <button type="button" onClick={() => setNewTasks([...newTasks, { text: '', completed: false }])} className="w-full py-2 border border-dashed border-slate-300 rounded-xl text-slate-400 font-bold text-[10px] hover:border-indigo-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-1"><Plus size={14}/> Add Task</button>
+                  <button type="button" onClick={() => setNewTasks([...newTasks, { id: generateId(), text: '', completed: false }])} className="w-full py-2 border border-dashed border-slate-300 rounded-xl text-slate-400 font-bold text-[10px] hover:border-indigo-500 hover:text-indigo-600 transition-colors flex items-center justify-center gap-1"><Plus size={14}/> Add Task</button>
                 </div>
-                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-100">{loading ? "Saving..." : "Save Changes"}</button>
-            </form>
+            </div>
+
+            {/* Fixed Footer */}
+            <div className="p-4 bg-white border-t border-slate-100 shrink-0 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+                <button onClick={handleUpdate} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-100 active:scale-95 transition-transform">
+                    {loading ? "Saving..." : "Save Changes"}
+                </button>
+            </div>
           </div>
         </div>
       )}

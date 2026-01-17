@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  BookOpen, // 👈 Vazifalar uchun ikonka
+  BookOpen, 
   AlertCircle, 
   LogOut, 
   Gamepad2, 
   User,
-  MessageCircle 
+  MessageCircle,
+  Home,
+  PieChart
 } from 'lucide-react'; 
 import { auth, db } from '../firebase'; 
 import { signOut } from 'firebase/auth'; 
@@ -18,7 +20,7 @@ const MobileNavbar = ({ role }) => {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 1. O'qilmagan xabarlarni sanash
+  // 1. O'qilmagan xabarlar
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -43,95 +45,118 @@ const MobileNavbar = ({ role }) => {
   }, []);
 
   const handleLogout = async () => {
+    if (navigator.vibrate) navigator.vibrate(10); // Haptic feedback
     if (window.confirm("Tizimdan chiqmoqchimisiz?")) {
       await signOut(auth);
       navigate('/login');
     }
   };
 
-  // 🔥 O'QITUVCHI MENYUSI (Vazifalar qaytarildi)
+  // --- MENU ITEMS ---
   const teacherNavItems = [
-    { path: '/', icon: <LayoutDashboard size={20} />, label: 'Guruhlar' }, 
-    { path: '/assignments', icon: <BookOpen size={20} />, label: 'Vazifalar' }, // 👈 Qaytarildi
-    { path: '/chat', icon: <MessageCircle size={20} />, label: 'Xabarlar', isChat: true },
-    { path: '/debtors', icon: <AlertCircle size={20} />, label: 'Qarzdorlar' },
+    { path: '/', icon: LayoutDashboard, label: 'Guruhlar' }, 
+    { path: '/assignments', icon: BookOpen, label: 'Vazifalar' },
+    { path: '/chat', icon: MessageCircle, label: 'Chat', isChat: true },
+    { path: '/debtors', icon: AlertCircle, label: 'Qarzdor' },
   ];
 
-  // O'QUVCHI MENYUSI
   const studentNavItems = [
-    { path: '/', icon: <LayoutDashboard size={20} />, label: 'Asosiy' },
-    { path: '/chat', icon: <MessageCircle size={20} />, label: 'Chat', isChat: true },
-    { path: '/games', icon: <Gamepad2 size={20} />, label: 'O\'yinlar' },
-    { path: '/settings', icon: <User size={20} />, label: 'Profil' },
+    { path: '/', icon: Home, label: 'Asosiy' },
+    { path: '/chat', icon: MessageCircle, label: 'Chat', isChat: true },
+    { path: '/games', icon: Gamepad2, label: 'O\'yinlar' },
+    { path: '/settings', icon: User, label: 'Profil' },
   ];
 
-  const navItems = role === 'student' ? studentNavItems : teacherNavItems;
+  // Role bo'yicha menyuni tanlash
+  const baseItems = role === 'student' ? studentNavItems : teacherNavItems;
 
-  // Agar Chat sahifasida bo'lsak, Navbar ko'rinmaydi
+  // Logoutni ham menyu qatoriga qo'shamiz (Animatsiya uchun)
+  const allItems = [
+    ...baseItems,
+    { path: 'logout', icon: LogOut, label: 'Chiqish', isAction: true }
+  ];
+
+  // Hozirgi aktiv tabni aniqlash
+  const activeIndex = allItems.findIndex(item => item.path === location.pathname);
+  
+  // Agar sahifa topilmasa (masalan, ichki sahifalar), birinchi elementni aktiv qilmaslik uchun -1 yoki 0
+  // Lekin vizual chiroyli bo'lishi uchun, agar topilmasa indikator ko'rinmasligi mumkin.
+  // Hozircha oddiylik uchun: topilmasa default holatda qoladi.
+
+  // Chat sahifasida navbar ko'rinmaydi
   if (location.pathname === '/chat') {
     return null;
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-4 py-2 md:hidden z-[999] pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-      <div className="flex justify-between items-center max-w-sm mx-auto">
-        
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 pb-[calc(0.5rem+env(safe-area-inset-bottom))] z-[999] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+      
+      <div className="relative flex justify-between items-center px-2 py-2">
           
-          let activeBg = 'bg-indigo-600 shadow-indigo-200';
-          let activeText = 'text-indigo-600';
-
-          // Ranglarni sozlash
-          if (item.path === '/debtors') {
-            activeBg = 'bg-rose-500 shadow-rose-200';
-            activeText = 'text-rose-500';
-          } else if (item.path === '/games') {
-            activeBg = 'bg-purple-600 shadow-purple-200';
-            activeText = 'text-purple-600';
-          } else if (item.path === '/assignments') {
-             // Vazifalar uchun to'q sariq (Orange) yoki oddiy Indigo ishlatishingiz mumkin
-             // Hozircha ajralib turishi uchun Orange qilib qo'ydim
-             activeBg = 'bg-orange-500 shadow-orange-200';
-             activeText = 'text-orange-500';
-          }
-
-          return (
-            <Link 
-              key={item.path} 
-              to={item.path} 
-              className="flex flex-col items-center gap-1 p-2 min-w-[64px] relative group"
+          {/* 🔥 SUZUVCHI ORQA FON (INDICATOR) */}
+          {/* Faqat activeIndex >= 0 bo'lsa ko'rinadi */}
+          {activeIndex !== -1 && (
+            <div 
+              className="absolute top-0 h-full transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1)"
+              style={{ 
+                width: `${100 / allItems.length}%`, // Elementlar soniga qarab bo'linadi (20%)
+                left: `${activeIndex * (100 / allItems.length)}%` 
+              }}
             >
-              <div className={`p-1.5 rounded-xl transition-all duration-300 relative ${isActive ? `${activeBg} text-white shadow-lg translate-y-[-4px]` : 'text-slate-400 group-hover:bg-slate-50'}`}>
-                {item.icon}
-                
-                {/* Alert Badge */}
-                {item.isChat && unreadCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white animate-pulse shadow-sm">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </div>
-              
-              <span className={`text-[9px] font-bold tracking-wide transition-colors ${isActive ? activeText : 'text-slate-400'}`}>
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
+               <div className="w-12 h-full mx-auto relative">
+                  {/* Tepadagi chiziqcha */}
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-indigo-600 rounded-b-full shadow-[0_0_10px_rgba(79,70,229,0.6)]"></div>
+                  {/* Rangli fon */}
+                  <div className="w-full h-full bg-gradient-to-b from-indigo-50 to-transparent rounded-b-2xl opacity-80"></div>
+               </div>
+            </div>
+          )}
 
-        {/* Logout */}
-        <button 
-          onClick={handleLogout}
-          className="flex flex-col items-center gap-1 p-2 min-w-[64px] group"
-        >
-          <div className="p-1.5 rounded-xl text-slate-400 group-hover:bg-red-50 group-hover:text-red-500 transition-all">
-            <LogOut size={20} />
-          </div>
-          <span className="text-[9px] font-bold text-slate-400 group-hover:text-red-500 tracking-wide">
-            Chiqish
-          </span>
-        </button>
+          {/* --- TUGMALAR --- */}
+          {allItems.map((item, index) => {
+            const isActive = location.pathname === item.path;
+            const Icon = item.icon;
+
+            // Agar bu Logout tugmasi bo'lsa
+            if (item.isAction) {
+                return (
+                    <button 
+                        key={index}
+                        onClick={handleLogout}
+                        className="relative flex-1 flex flex-col items-center justify-center py-2 z-10 group"
+                    >
+                        <div className="transition-all duration-300 ease-out text-slate-400 group-hover:text-red-500">
+                            <Icon size={24} strokeWidth={2} />
+                        </div>
+                        <span className="text-[9px] font-bold transition-all duration-300 absolute bottom-1 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 text-red-500">
+                            {item.label}
+                        </span>
+                    </button>
+                );
+            }
+
+            return (
+              <Link 
+                key={index}
+                to={item.path}
+                className="relative flex-1 flex flex-col items-center justify-center py-2 z-10 group"
+                onClick={() => { if(navigator.vibrate) navigator.vibrate(10); }}
+              >
+                <div className={`transition-all duration-300 ease-out ${isActive ? '-translate-y-1.5 scale-110 text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}`}>
+                  <Icon size={24} strokeWidth={isActive ? 2.5 : 2} className={isActive ? 'drop-shadow-sm' : ''} />
+                  
+                  {/* Chat uchun qizil nuqta */}
+                  {item.isChat && unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse shadow-sm"></span>
+                  )}
+                </div>
+                
+                <span className={`text-[9px] font-bold transition-all duration-300 absolute bottom-1 ${isActive ? 'opacity-100 translate-y-0 text-indigo-600' : 'opacity-0 translate-y-2 text-slate-400'}`}>
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
       </div>
     </div>
   );

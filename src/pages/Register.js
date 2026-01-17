@@ -3,15 +3,13 @@ import { useNavigate, Link } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { Loader2, GraduationCap } from 'lucide-react';
+import { Loader2, GraduationCap, User, Mail, Lock } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
   
-  // 1. O'ZGARISH: Ism va Familiya uchun alohida statelar
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -21,8 +19,6 @@ const Register = () => {
     setLoading(true);
 
     try {
-      // 2. O'ZGARISH: Ism va Familiyani birlashtirib olish
-      // trim() bo'sh joylarni olib tashlaydi
       const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
       // 1. AUTHENTICATION
@@ -31,9 +27,9 @@ const Register = () => {
 
       // 2. DATABASE
       await setDoc(doc(db, "students", user.uid), {
-        name: fullName,        // Bazaga to'liq ism ketadi
-        firstName: firstName.trim(), // Alohida ham saqlab qo'yish foydali (ixtiyoriy)
-        lastName: lastName.trim(),   // Alohida ham saqlab qo'yish foydali (ixtiyoriy)
+        name: fullName,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: email,
         role: 'student',
         groupId: null,
@@ -42,89 +38,122 @@ const Register = () => {
         joinedAt: serverTimestamp()
       });
 
-      alert("Ro'yxatdan o'tdingiz! Tizimga kiring.");
+      alert("Muvaffaqiyatli! Tizimga kirishingiz mumkin.");
       navigate('/login');
       
     } catch (error) {
       console.error("Xatolik:", error);
-      alert("Xatolik yuz berdi: " + error.message);
+      alert("Xatolik: " + error.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
-      <div className="bg-white p-8 rounded-[2.5rem] shadow-xl w-full max-w-md border border-slate-100">
+    <div className="relative min-h-screen flex items-center justify-center overflow-hidden font-sans py-10">
+      
+      {/* 1. ORQA FON RASMI (Login.js bilan bir xil) */}
+      <div 
+        className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat transform scale-105"
+        style={{
+            backgroundImage: "url('https://images.unsplash.com/photo-1497633762265-9d179a990aa6?q=80&w=2073&auto=format&fit=crop')",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-[3px]"></div>
+      </div>
+
+      {/* 2. DEKORATIV DOIRALAR */}
+      <div className="absolute top-10 left-10 w-32 h-32 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
+      <div className="absolute bottom-10 right-10 w-32 h-32 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse delay-1000"></div>
+
+      {/* 3. GLASS CARD (IXCHAMLASHTIRILGAN) */}
+      <div className="relative z-10 w-full max-w-sm sm:max-w-[380px] mx-4 p-6 sm:p-8 rounded-2xl border border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)] bg-white/10 backdrop-blur-md">
         
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-indigo-200">
-            <GraduationCap size={32} />
+        {/* Sarlavha */}
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/20 mb-4 shadow-lg border border-white/30 animate-bounce-slow">
+            <GraduationCap className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-black text-slate-800 uppercase italic">Ro'yxatdan O'tish</h1>
-          <p className="text-slate-400 font-bold text-xs uppercase tracking-widest mt-1">Yangi hisob yarating</p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2 drop-shadow-md">Ro'yxatdan O'tish</h2>
+          <p className="text-gray-200 text-xs sm:text-sm font-medium drop-shadow-sm">Yangi hisob yaratish uchun ma'lumotlarni to'ldiring.</p>
         </div>
 
+        {/* Forma */}
         <form onSubmit={handleRegister} className="space-y-4">
           
-          {/* 3. O'ZGARISH: Inputlarni ikkiga ajratish */}
+          {/* Ism va Familiya (Yonma-yon) */}
           <div className="flex gap-3">
-            <div className="w-1/2">
-              <input 
+            <div className="relative group w-1/2">
+               <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-300 group-focus-within:text-white transition-colors">
+                  <User className="w-4 h-4" />
+               </div>
+               <input 
                 type="text" 
                 required
-                placeholder="Ismingiz" 
-                className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
+                placeholder="Ism" 
+                className="w-full py-3 pl-9 pr-2 bg-white/20 border border-white/20 rounded-xl text-sm text-white placeholder-gray-300 focus:outline-none focus:bg-white/30 focus:border-white/50 focus:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
-            <div className="w-1/2">
-              <input 
+            <div className="relative group w-1/2">
+               <input 
                 type="text" 
                 required
-                placeholder="Familiyangiz" 
-                className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
+                placeholder="Familiya" 
+                className="w-full py-3 px-4 bg-white/20 border border-white/20 rounded-xl text-sm text-white placeholder-gray-300 focus:outline-none focus:bg-white/30 focus:border-white/50 focus:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
               />
             </div>
           </div>
 
-          <div>
+          {/* Email */}
+          <div className="relative group">
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-300 group-focus-within:text-white transition-colors">
+                <Mail className="w-5 h-5" />
+            </div>
             <input 
               type="email" 
               required
               placeholder="Email manzil" 
-              className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
+              className="w-full py-3 pl-10 pr-4 bg-white/20 border border-white/20 rounded-xl text-sm text-white placeholder-gray-300 focus:outline-none focus:bg-white/30 focus:border-white/50 focus:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
-          <div>
+
+          {/* Parol */}
+          <div className="relative group">
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-300 group-focus-within:text-white transition-colors">
+                <Lock className="w-5 h-5" />
+            </div>
             <input 
               type="password" 
               required
-              placeholder="Parol (kamida 6 ta belgi)" 
-              className="w-full px-6 py-4 bg-slate-50 rounded-2xl font-bold text-sm text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 border border-transparent focus:border-transparent transition-all"
+              placeholder="Parol (min 6 ta belgi)" 
+              className="w-full py-3 pl-10 pr-4 bg-white/20 border border-white/20 rounded-xl text-sm text-white placeholder-gray-300 focus:outline-none focus:bg-white/30 focus:border-white/50 focus:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
 
+          {/* Tugma */}
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600/80 to-purple-600/80 hover:from-blue-600 hover:to-purple-600 text-white font-bold shadow-lg hover:shadow-xl hover:shadow-purple-500/20 transform hover:-translate-y-0.5 transition-all duration-300 border border-white/20 active:scale-95 disabled:opacity-70 disabled:hover:translate-y-0 flex items-center justify-center gap-2 text-sm sm:text-base mt-2"
           >
-            {loading ? <Loader2 className="animate-spin" /> : "Ro'yxatdan O'tish"}
+            {loading ? <Loader2 className="animate-spin" size={20} /> : "Ro'yxatdan O'tish"}
           </button>
         </form>
 
-        <div className="text-center mt-6">
-          <Link to="/login" className="text-xs font-bold text-slate-400 hover:text-indigo-600 uppercase tracking-wide transition-colors">
-            Hisobingiz bormi? Kirish
-          </Link>
+        {/* Kirish Linki */}
+        <div className="mt-6 text-center text-xs sm:text-sm text-gray-200 font-medium">
+            Hisobingiz bormi? 
+            <Link to="/login" className="font-bold text-white hover:underline ml-1 drop-shadow-sm decoration-2 underline-offset-4">
+               Kirish
+            </Link>
         </div>
 
       </div>
@@ -132,4 +161,4 @@ const Register = () => {
   );
 };
 
-export default Register;  
+export default Register;

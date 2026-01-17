@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  ArrowLeft, Star, X, Loader2, Edit2, Trash2, 
+  ArrowLeft, X, Loader2, Edit2, Trash2, 
   UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar,
-  Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen
+  Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen, RefreshCw, Clock
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { 
   collection, query, where, getDocs, addDoc, 
-  doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc
+  doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc, writeBatch
 } from 'firebase/firestore';
 
 // --- HELPER: HAPTICS ---
@@ -27,6 +27,9 @@ const getAvatarUrl = (seed) => {
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=e0e7ff,d1fae5,ffedd5`;
 };
 
+// --- HELPER: UUID ---
+const generateId = () => Math.random().toString(36).substr(2, 9);
+
 const GroupDetails = () => {
   const { groupId } = useParams();
   const navigate = useNavigate();
@@ -37,15 +40,14 @@ const GroupDetails = () => {
   const [groupName, setGroupName] = useState('');
   const [students, setStudents] = useState([]);
   const [lessons, setLessons] = useState([]); 
-  const [allGroups, setAllGroups] = useState([]);
   const [currentUserRole, setCurrentUserRole] = useState(null);
   
   // UI State
-  const [activeTab, setActiveTab] = useState('students'); // 'students' | 'journal'
+  const [activeTab, setActiveTab] = useState('students'); 
   const [studentViewMode, setStudentViewMode] = useState('list'); 
-  const [expandedMonths, setExpandedMonths] = useState({});
   const [modalExpandedMonths, setModalExpandedMonths] = useState({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); 
   
   // Modals
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
@@ -53,73 +55,139 @@ const GroupDetails = () => {
   const [isAddLessonOpen, setIsAddLessonOpen] = useState(false); 
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   
-  // Forms & Temp State
+  // Forms
   const [addMode, setAddMode] = useState('single'); 
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [targetGroupId, setTargetGroupId] = useState('');
+  
+  // Lesson Form
   const [lessonTopic, setLessonTopic] = useState('');
   const [lessonDate, setLessonDate] = useState('');
-  const [lessonTasks, setLessonTasks] = useState([{ text: 'Homework', completed: false }]); 
+  const [lessonTasks, setLessonTasks] = useState([{ id: generateId(), text: 'Homework', completed: false }]); 
+  const [isLessonDelayed, setIsLessonDelayed] = useState(false); // 🔥 Delay State
   const [editingLesson, setEditingLesson] = useState(null);
-  const [selectedStudent, setSelectedStudent] = useState(null);
   
   // Grading State
+  const [selectedStudent, setSelectedStudent] = useState(null);
   const [gradeScores, setGradeScores] = useState({}); 
   const [existingGradeDocs, setExistingGradeDocs] = useState({});
   const [existingGradeObjects, setExistingGradeObjects] = useState({});
   const [savedStatus, setSavedStatus] = useState({}); 
 
-  // --- FETCHING ---
-  const fetchData = async () => {
+  // --- FETCHING & CACHING ---
+  const fetchData = async (forceRefresh = false) => {
     try {
+      if (forceRefresh) setRefreshing(true);
+      
       const currentUser = auth.currentUser;
       if (currentUser) {
         const userDoc = await getDoc(doc(db, "students", currentUser.uid));
         if (userDoc.exists()) setCurrentUserRole(userDoc.data().role);
       }
+
+      const CACHE_KEY = `group_cache_${groupId}`;
+      const cachedData = localStorage.getItem(CACHE_KEY);
+      
+      if (!forceRefresh && cachedData) {
+          const { data, timestamp } = JSON.parse(cachedData);
+          if (Date.now() - timestamp < 10 * 60 * 1000) {
+              setGroupName(data.groupName);
+              setStudents(data.students);
+              setLessons(data.lessons);
+              setLoading(false);
+              setRefreshing(false);
+              return; 
+          }
+      }
+
       const groupDoc = await getDoc(doc(db, "groups", groupId));
       if (groupDoc.exists()) setGroupName(groupDoc.data().name);
       else navigate('/');
       
-      // Parallel Fetch for Performance
       const qGrades = query(collection(db, "grades"), where("groupId", "==", groupId));
       const qStudents = query(collection(db, "students"), where("groupId", "==", groupId));
       const qLessons = query(collection(db, "lessons"), where("groupId", "==", groupId), orderBy("date", "desc"));
-      const qGroups = query(collection(db, "groups"));
 
-      const [snapGrades, snapStudents, snapLessons, snapGroups] = await Promise.all([
-          getDocs(qGrades), getDocs(qStudents), getDocs(qLessons), getDocs(qGroups)
+      const [snapGrades, snapStudents, snapLessons] = await Promise.all([
+          getDocs(qGrades), getDocs(qStudents), getDocs(qLessons)
       ]);
 
       const allGrades = snapGrades.docs.map(d => d.data());
       
+      // 🔥 LESSONS PROCESSING
+      const lessonsList = snapLessons.docs.map(d => {
+          const data = d.data();
+          const normalizedTasks = (data.tasks || []).map(t => {
+              if (typeof t === 'string') return { id: generateId(), text: t, completed: false };
+              if (!t.id) return { ...t, id: generateId() };
+              return t;
+          });
+          return { id: d.id, ...data, tasks: normalizedTasks };
+      });
+
+      // 🔥 CALCULATION LOGIC UPDATE
+      // Faqat active (qoldirilmagan) darslarni olamiz
+      const activeLessons = lessonsList.filter(l => !l.isDelayed);
+
       const studentsList = snapStudents.docs.map(d => {
         const sData = d.data();
         const studentGrades = allGrades.filter(g => g.studentId === d.id);
-        const totalScore = studentGrades.reduce((acc, curr) => acc + (curr.score || 0), 0);
-        const averageScore = studentGrades.length > 0 ? Math.round(totalScore / studentGrades.length) : 0;
+        
+        let totalScore = 0;
+        
+        // Agar active darslar bo'lmasa 0
+        if (activeLessons.length === 0) {
+            return { id: d.id, ...sData, gameXp: sData.gameXp || 0, averageScore: 0 };
+        }
+
+        // Har bir active dars uchun bahoni tekshiramiz
+        activeLessons.forEach(lesson => {
+            // Shu darsga tegishli har qanday bahoni topamiz (birinchi uchraganini)
+            // Agar tasklar ko'p bo'lsa, o'rtachasini olish mumkin, lekin hozircha oddiy yondashuv:
+            const grade = studentGrades.find(g => g.lessonId === lesson.id);
+            
+            if (grade) {
+                totalScore += Number(grade.score) || 0;
+            } else {
+                // Baho yo'q = 0 ball
+                totalScore += 0;
+            }
+        });
+
+        // O'rtacha = Jami Ball / Jami Active Darslar Soni
+        const averageScore = Math.round(totalScore / activeLessons.length);
+
         return { id: d.id, ...sData, gameXp: sData.gameXp || 0, averageScore: averageScore };
       });
-      studentsList.sort((a, b) => a.name.localeCompare(b.name)); 
-      setStudents(studentsList);
       
-      setLessons(snapLessons.docs.map(d => ({ id: d.id, ...d.data() })));
-      setAllGroups(snapGroups.docs.map(d => ({ id: d.id, ...d.data() })).filter(g => g.id !== groupId));
+      studentsList.sort((a, b) => a.name.localeCompare(b.name)); 
+
+      setStudents(studentsList);
+      setLessons(lessonsList);
+      
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+          data: { groupName: groupDoc.data().name, students: studentsList, lessons: lessonsList },
+          timestamp: Date.now()
+      }));
+
       setLoading(false);
-    } catch (e) { console.error(e); setLoading(false); }
+      setRefreshing(false);
+    } catch (e) { 
+        console.error(e); 
+        setLoading(false); 
+        setRefreshing(false);
+    }
   };
 
   useEffect(() => { fetchData(); }, [groupId]);
 
-  // Deep Linking to Grade Modal
   useEffect(() => {
       if (location.state?.openStudentId && students.length > 0) {
           const target = students.find(s => s.id === location.state.openStudentId);
           if (target) {
               openGradeModal(target);
-              // Scroll logic inside modal
               setTimeout(() => {
                   if (highlightRef.current) {
                       highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -130,7 +198,6 @@ const GroupDetails = () => {
       }
   }, [students, location.state]);
 
-  // --- HELPERS ---
   const getDisplayedStudents = () => {
     let list = [...students];
     if (studentViewMode === 'leaderboard') return list.sort((a, b) => b.gameXp - a.gameXp);
@@ -154,7 +221,11 @@ const GroupDetails = () => {
       setModalExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
   };
 
-  // --- ACTIONS ---
+  const handleForceRefresh = () => {
+      triggerHaptic();
+      fetchData(true); 
+  };
+
   const handleDeleteGroup = async () => { if (currentUserRole !== 'admin') return alert("Huquqingiz yo'q!"); if (window.confirm(`"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?`)) { setLoading(true); await deleteDoc(doc(db, "groups", groupId)); navigate('/'); } };
   
   const handleBulkAddStudents = async () => { 
@@ -165,12 +236,89 @@ const GroupDetails = () => {
           const [name, email] = line.split(',').map(s => s.trim()); 
           return addDoc(collection(db, "students"), { name, email, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' }); 
       })); 
-      setBulkText(''); setIsAddStudentOpen(false); fetchData(); 
+      setBulkText(''); setIsAddStudentOpen(false); 
+      fetchData(true); 
   };
 
-  const handleMoveStudent = async () => { if (!targetGroupId) return alert("Guruhni tanlang!"); setLoading(true); try { await updateDoc(doc(db, "students", selectedStudent.id), { groupId: targetGroupId }); setIsMoveModalOpen(false); fetchData(); alert("Ko'chirildi!"); } catch (e) { alert(e.message); } finally { setLoading(false); } };
-  const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(); } };
+  const handleMoveStudent = async () => { if (!targetGroupId) return alert("Guruhni tanlang!"); setLoading(true); try { await updateDoc(doc(db, "students", selectedStudent.id), { groupId: targetGroupId }); setIsMoveModalOpen(false); fetchData(true); alert("Ko'chirildi!"); } catch (e) { alert(e.message); } finally { setLoading(false); } };
+  const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(true); } };
 
+  // --- LESSON MANAGEMENT ---
+  const handleOpenNewLesson = () => {
+      triggerHaptic();
+      setEditingLesson(null); 
+      setLessonTopic('');
+      setLessonDate('');
+      setLessonTasks([{ id: generateId(), text: 'Homework', completed: false }]);
+      setIsLessonDelayed(false); // Reset delay
+      setIsAddLessonOpen(true);
+  };
+
+  const handleOpenEditLesson = (lesson) => {
+      triggerHaptic();
+      const tasksWithIds = (lesson.tasks || []).map(t => 
+        t.id ? t : { ...t, id: generateId() }
+      );
+      if (tasksWithIds.length === 0) tasksWithIds.push({ id: generateId(), text: 'Homework', completed: false });
+      
+      setEditingLesson({ ...lesson, tasks: tasksWithIds }); 
+      setLessonTopic(lesson.topic);
+      setLessonDate(lesson.date);
+      setLessonTasks(tasksWithIds);
+      setIsLessonDelayed(lesson.isDelayed || false); // 🔥 Load delay status
+      setIsAddLessonOpen(true);
+  };
+
+  const handleSaveLesson = async (e) => {
+      if (e) e.preventDefault();
+      const cleanTasks = lessonTasks.filter(t => t.text.trim() !== '');
+      if (!lessonTopic.trim() || !lessonDate) return alert("Mavzu va sana kiritilishi shart!");
+
+      setLoading(true);
+      try {
+          if (editingLesson && editingLesson.id) {
+              const batch = writeBatch(db);
+              const lessonRef = doc(db, "lessons", editingLesson.id);
+              batch.update(lessonRef, { 
+                  topic: lessonTopic, 
+                  date: lessonDate, 
+                  tasks: cleanTasks,
+                  isDelayed: isLessonDelayed // 🔥 Update delay status
+              });
+
+              for (const newTask of cleanTasks) {
+                  const oldTask = editingLesson.tasks.find(t => t.id === newTask.id);
+                  if (oldTask && oldTask.text !== newTask.text) {
+                      const qGrades = query(collection(db, "grades"), where("lessonId", "==", editingLesson.id), where("taskType", "==", oldTask.text));
+                      const gradesSnap = await getDocs(qGrades);
+                      gradesSnap.docs.forEach(gDoc => {
+                          batch.update(doc(db, "grades", gDoc.id), { taskType: newTask.text, comment: lessonTopic });
+                      });
+                  }
+              }
+              await batch.commit();
+          } else {
+              await addDoc(collection(db, "lessons"), { 
+                  groupId, 
+                  topic: lessonTopic, 
+                  date: lessonDate, 
+                  tasks: cleanTasks, 
+                  createdAt: serverTimestamp(),
+                  isDelayed: isLessonDelayed // 🔥 Save delay status
+              });
+          }
+          
+          setIsAddLessonOpen(false);
+          setEditingLesson(null);
+          await fetchData(true); 
+          triggerHaptic('success');
+      } catch (e) { alert("Xatolik: " + e.message); } 
+      finally { setLoading(false); }
+  };
+
+  const handleDeleteLesson = async (id) => { if(window.confirm(`O'chirilsinmi?`)) { await deleteDoc(doc(db, "lessons", id)); fetchData(true); }};
+
+  // --- GRADING ACTIONS ---
   const openGradeModal = async (student) => {
     triggerHaptic();
     setSelectedStudent(student); 
@@ -178,8 +326,6 @@ const GroupDetails = () => {
     setExistingGradeDocs({});
     setExistingGradeObjects({});
     setSavedStatus({});
-    
-    // Optimistic open
     setIsGradeModalOpen(true);
 
     const q = query(collection(db, "grades"), where("studentId", "==", student.id));
@@ -191,7 +337,7 @@ const GroupDetails = () => {
 
     snap.forEach(doc => {
         const data = doc.data();
-        const key = `${data.lessonId}_${data.taskType}`;
+        const key = `${data.lessonId}_${data.taskType}`; 
         scores[key] = data.score;
         docs[key] = doc.id;
         objs[key] = data;
@@ -213,12 +359,13 @@ const GroupDetails = () => {
 
     try {
       const entries = Object.entries(gradeScores);
-      // Batch writes are better, but keeping loop for simplicity with current structure
       for (const [key, scoreVal] of entries) {
          if (scoreVal === '' || scoreVal === null) continue;
 
-         const [lessonId, ...taskParts] = key.split('_');
-         const taskType = taskParts.join('_'); 
+         const firstUnderscore = key.indexOf('_');
+         const lessonId = key.substring(0, firstUnderscore);
+         const taskType = key.substring(firstUnderscore + 1);
+
          const scoreNum = Number(scoreVal);
          const lesson = lessons.find(l => l.id === lessonId);
          const topic = lesson ? lesson.topic : 'Vazifa';
@@ -227,13 +374,7 @@ const GroupDetails = () => {
 
          if (oldData && oldData.score === scoreNum) continue;
 
-         let gradeData = {
-            score: scoreNum,
-            date: serverTimestamp(),
-            status: 'active',
-            retakeDeadline: null
-         };
-
+         let gradeData = { score: scoreNum, date: serverTimestamp(), status: 'active', retakeDeadline: null };
          if (scoreNum < 60) {
             const deadline = new Date();
             deadline.setDate(deadline.getDate() + 7);
@@ -241,7 +382,6 @@ const GroupDetails = () => {
             gradeData.retakeDeadline = deadline;
             if (!eId) gradeData.previousScore = null;
          }
-
          if (eId && oldData && (oldData.status === 'retake_submitted' || oldData.status === 'retake_needed')) {
              gradeData.previousScore = oldData.score;
          }
@@ -250,13 +390,8 @@ const GroupDetails = () => {
              await updateDoc(doc(db, "grades", eId), gradeData);
          } else {
              const newDoc = await addDoc(collection(db, "grades"), {
-                 studentId: selectedStudent.id,
-                 studentName: selectedStudent.name,
-                 groupId,
-                 lessonId,
-                 taskType,
-                 comment: topic,
-                 ...gradeData
+                 studentId: selectedStudent.id, studentName: selectedStudent.name,
+                 groupId, lessonId, taskType, comment: topic, ...gradeData
              });
              existingGradeDocs[key] = newDoc.id;
          }
@@ -268,15 +403,13 @@ const GroupDetails = () => {
       setSavedStatus(newSavedStatus);
       triggerHaptic('success');
       setTimeout(() => setSavedStatus({}), 2000);
-      fetchData(); // Refresh bg data
+      fetchData(true); 
 
-    } catch (er) {
-        alert("Xatolik: " + er.message);
-    }
+    } catch (er) { alert("Xatolik: " + er.message); }
   };
 
-  const handleScoreChange = (lessonId, taskName, value) => {
-      const key = `${lessonId}_${taskName}`;
+  const handleScoreChange = (lessonId, taskText, value) => {
+      const key = `${lessonId}_${taskText}`;
       setGradeScores(prev => ({ ...prev, [key]: value }));
       if (savedStatus[key]) {
           const newStatus = { ...savedStatus };
@@ -284,9 +417,6 @@ const GroupDetails = () => {
           setSavedStatus(newStatus);
       }
   };
-  
-  const handleDeleteLesson = async (id) => { if(window.confirm(`O'chirilsinmi?`)) { await deleteDoc(doc(db, "lessons", id)); fetchData(); }};
-  const handleAddLesson = async (e) => { e.preventDefault(); const tasks = lessonTasks.filter(t=>t.text.trim()!==''); try { if(editingLesson) await updateDoc(doc(db,"lessons",editingLesson.id),{topic:lessonTopic,date:lessonDate,tasks}); else await addDoc(collection(db,"lessons"),{groupId,topic:lessonTopic,date:lessonDate,tasks,createdAt:serverTimestamp()}); setIsAddLessonOpen(false); setEditingLesson(null); setLessonTopic(''); setLessonDate(''); setLessonTasks([{text:'Homework',completed:false}]); fetchData(); } catch(e){alert(e.message);} };
 
   if (loading && !isAddStudentOpen && !isMoveModalOpen && !isGradeModalOpen && !isAddLessonOpen) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40}/></div>;
 
@@ -308,9 +438,19 @@ const GroupDetails = () => {
                     </div>
                 </div>
             </div>
-            {currentUserRole === 'admin' && (
-                <button onClick={handleDeleteGroup} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20}/></button>
-            )}
+            
+            <div className="flex items-center gap-2">
+                <button 
+                    onClick={handleForceRefresh} 
+                    className={`p-2 rounded-xl border border-slate-100 transition-all ${refreshing ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                >
+                    <RefreshCw size={20} className={refreshing ? "animate-spin" : ""} />
+                </button>
+
+                {currentUserRole === 'admin' && (
+                    <button onClick={handleDeleteGroup} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20}/></button>
+                )}
+            </div>
         </div>
 
         {/* --- TABS --- */}
@@ -326,7 +466,7 @@ const GroupDetails = () => {
 
       <div className="pt-[140px] px-4 sm:px-6 max-w-4xl mx-auto space-y-6">
         
-        {/* --- TAB: STUDENTS --- */}
+        {/* STUDENTS TAB */}
         {activeTab === 'students' && (
             <div className="animate-in slide-in-from-left-4 duration-300">
                 <div className="flex justify-between items-center mb-4">
@@ -383,17 +523,16 @@ const GroupDetails = () => {
                         )}
                      </div>
                    )})}
-                   {students.length === 0 && <div className="p-10 text-center text-slate-400 text-xs italic">O'quvchilar ro'yxati bo'sh.</div>}
                 </div>
             </div>
         )}
 
-        {/* --- TAB: JOURNAL --- */}
+        {/* JOURNAL TAB */}
         {activeTab === 'journal' && (
             <div className="animate-in slide-in-from-right-4 duration-300 pb-24">
                 <div className="flex justify-between items-center mb-4 px-1">
                     <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Timeline</h2>
-                    <button onClick={() => { triggerHaptic(); setIsAddLessonOpen(true); }} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><Plus size={14}/> New Lesson</button>
+                    <button onClick={handleOpenNewLesson} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><Plus size={14}/> New Lesson</button>
                 </div>
 
                 <div className="space-y-6 relative">
@@ -406,11 +545,12 @@ const GroupDetails = () => {
                             <div className="space-y-4 pl-10">
                                 {groupedLessons[month].map((l) => (
                                     <div key={l.id} className="relative group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm active:scale-[0.99] transition-transform">
-                                        <div className="absolute -left-[30px] top-6 w-4 h-4 rounded-full bg-white border-4 border-indigo-500 shadow-sm"></div>
+                                        <div className={`absolute -left-[30px] top-6 w-4 h-4 rounded-full border-4 shadow-sm ${l.isDelayed ? 'bg-orange-100 border-orange-400' : 'bg-white border-indigo-500'}`}></div>
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="text-[10px] font-black text-indigo-500 uppercase">{l.date}</span>
+                                                    {l.isDelayed && <span className="text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded flex items-center gap-1"><Clock size={10}/> Delayed</span>}
                                                 </div>
                                                 <h3 className="text-sm font-bold text-slate-800 leading-tight mb-2">{l.topic}</h3>
                                                 <div className="flex flex-wrap gap-1.5">
@@ -420,7 +560,7 @@ const GroupDetails = () => {
                                                 </div>
                                             </div>
                                             <div className="flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                                                <button onClick={(e) => { e.stopPropagation(); setEditingLesson(l); setLessonTopic(l.topic); setLessonDate(l.date); setLessonTasks(l.tasks || [{ text: 'Homework', completed: false }]); setIsAddLessonOpen(true); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit2 size={14}/></button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleOpenEditLesson(l); }} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit2 size={14}/></button>
                                                 <button onClick={(e) => { e.stopPropagation(); handleDeleteLesson(l.id); }} className="p-2 text-slate-400 hover:text-red-500 bg-slate-50 rounded-lg"><Trash2 size={14}/></button>
                                             </div>
                                         </div>
@@ -435,14 +575,11 @@ const GroupDetails = () => {
         )}
       </div>
 
-      {/* --- MODAL: GRADING (FIXED & HIGH Z-INDEX) --- */}
+      {/* GRADE MODAL */}
       {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsGradeModalOpen(false)}></div>
-          {/* 🔥 h-[80dvh] + z-index */}
           <div className="bg-white w-full max-w-lg h-[80dvh] sm:h-[80vh] rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
-            
-            {/* Header (Fixed) */}
             <div className="p-5 bg-slate-900 text-white shrink-0 flex items-center justify-between relative overflow-hidden z-50">
                 <div className="flex items-center gap-3 relative z-10">
                     <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 overflow-hidden"><img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt=""/></div>
@@ -453,8 +590,6 @@ const GroupDetails = () => {
                 </div>
                 <button onClick={() => setIsGradeModalOpen(false)} className="relative z-10 p-2 bg-white/10 rounded-full hover:bg-white/20"><X size={20}/></button>
             </div>
-
-            {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50">
                <form onSubmit={handleSaveAllGrades} className="space-y-4">
                   {Object.keys(groupedLessons).map((month) => (
@@ -463,14 +598,14 @@ const GroupDetails = () => {
                               <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider flex items-center gap-2"><Calendar size={12}/> {month}</span>
                               {modalExpandedMonths[month] ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
                           </div>
-                          
                           {modalExpandedMonths[month] && (
                               <div className="p-2 space-y-2">
                                   {groupedLessons[month].map(lesson => (
-                                      <div key={lesson.id} className="p-2">
+                                      <div key={lesson.id} className={`p-2 ${lesson.isDelayed ? 'opacity-60 grayscale-[0.5]' : ''}`}>
                                           <div className="flex items-center gap-2 mb-2 pl-1">
                                               <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{lesson.date}</span>
                                               <span className="text-xs font-bold text-slate-700 uppercase truncate">{lesson.topic}</span>
+                                              {lesson.isDelayed && <span className="text-[9px] font-bold text-orange-500">(Delayed)</span>}
                                           </div>
                                           <div className="grid grid-cols-1 gap-2">
                                               {lesson.tasks?.map((task, idx) => {
@@ -511,8 +646,6 @@ const GroupDetails = () => {
                   ))}
                </form>
             </div>
-
-            {/* Footer Button (Fixed) */}
             <div className="p-4 bg-white border-t border-slate-100 shrink-0 z-50 relative pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                <button onClick={handleSaveAllGrades} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-200 active:scale-95 transition-all uppercase text-xs tracking-widest flex items-center justify-center gap-2">
                   {loading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Save Changes</>}
@@ -522,17 +655,18 @@ const GroupDetails = () => {
         </div>
       )}
 
-      {/* --- MODAL: ADD STUDENT --- */}
+      {/* ADD STUDENT MODAL */}
       {isAddStudentOpen && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
           <div className="bg-white w-full sm:w-auto sm:min-w-[400px] rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 pb-[calc(2rem+env(safe-area-inset-bottom))] relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
             <h3 className="text-xl font-black text-slate-800 mb-6 uppercase text-center italic">New Student</h3>
-            {/* Add Student Content */}
+            
             <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
                <button onClick={() => setAddMode('single')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Single</button>
                <button onClick={() => setAddMode('bulk')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'bulk' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Bulk</button>
             </div>
+
             {addMode === 'single' ? (
               <div className="space-y-4">
                 <input type="text" placeholder="Full Name" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" value={newStudentName} onChange={e=>setNewStudentName(e.target.value)} />
@@ -541,26 +675,41 @@ const GroupDetails = () => {
             ) : (
               <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-32 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all resize-none" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
             )}
-            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-lg active:scale-95 transition-transform">
+
+            <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(true); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-lg active:scale-95 transition-transform">
               {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Add Student'}
             </button>
           </div>
         </div>
       )}
 
-      {/* --- MODAL: ADD LESSON --- */}
+      {/* LESSON MODAL */}
       {isAddLessonOpen && (
-         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+         <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => {setIsAddLessonOpen(false); setEditingLesson(null);}}></div>
-          <div className="bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 w-full max-w-sm relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-            <h3 className="text-xl font-black text-slate-800 mb-6 uppercase text-center italic">{editingLesson ? "Edit Lesson" : "New Lesson"}</h3>
-              <form onSubmit={handleAddLesson} className="space-y-4">
+          <div className="bg-white w-full max-w-sm h-[80dvh] sm:h-auto rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase text-center italic">{editingLesson ? "Edit Lesson" : "New Lesson"}</h3>
+              <form id="lesson-form" className="space-y-4">
                 <input type="date" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonDate} onChange={e => setLessonDate(e.target.value)} />
                 <input type="text" placeholder="Topic Name" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonTopic} onChange={e => setLessonTopic(e.target.value)} />
+                
+                {/* 🔥 DELAY TOGGLE */}
+                <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <div 
+                        onClick={() => setIsLessonDelayed(!isLessonDelayed)}
+                        className={`w-10 h-6 rounded-full p-1 transition-all cursor-pointer ${isLessonDelayed ? 'bg-orange-400' : 'bg-slate-300'}`}
+                    >
+                        <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isLessonDelayed ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                    </div>
+                    <span className="text-xs font-bold text-slate-500">Darsni keyinga qoldirish</span>
+                </div>
+
                 <div className="space-y-2">
                   <div className="flex justify-between items-center px-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasks / Homework</label>
-                      <button type="button" onClick={() => setLessonTasks([...lessonTasks, { text: '', completed: false }])} className="text-[10px] font-bold text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded-lg">+ Add</button>
+                      <button type="button" onClick={() => setLessonTasks([...lessonTasks, { id: generateId(), text: '', completed: false }])} className="text-[10px] font-bold text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded-lg">+ Add</button>
                   </div>
                   {lessonTasks.map((task, idx) => (
                     <div key={idx} className="flex gap-2">
@@ -569,8 +718,15 @@ const GroupDetails = () => {
                     </div>
                   ))}
                 </div>
-                <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-200 active:scale-95 transition-all mt-2">Save Lesson</button>
               </form>
+            </div>
+
+            <div className="p-4 bg-white border-t border-slate-100 shrink-0 z-50 relative pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+                <button onClick={handleSaveLesson} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-200 active:scale-95 transition-all">
+                    {editingLesson ? "Update Lesson" : "Create Lesson"}
+                </button>
+            </div>
+
           </div>
         </div>
       )}
