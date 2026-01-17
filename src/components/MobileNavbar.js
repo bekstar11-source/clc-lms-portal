@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  BookOpen, 
+  BookOpen, // 👈 Vazifalar uchun ikonka
   AlertCircle, 
   LogOut, 
   Gamepad2, 
@@ -14,12 +14,11 @@ import { signOut } from 'firebase/auth';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const MobileNavbar = ({ role }) => {
-  // 1. HOOKLAR TEPADA BO'LISHI SHART
   const location = useLocation();
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 2. useEffect ni tepaga oldik (shartdan oldin ishlashi kerak)
+  // 1. O'qilmagan xabarlarni sanash
   useEffect(() => {
     const user = auth.currentUser;
     if (!user) return;
@@ -50,13 +49,15 @@ const MobileNavbar = ({ role }) => {
     }
   };
 
-  // MENU ITEMS
+  // 🔥 O'QITUVCHI MENYUSI (Vazifalar qaytarildi)
   const teacherNavItems = [
     { path: '/', icon: <LayoutDashboard size={20} />, label: 'Guruhlar' }, 
+    { path: '/assignments', icon: <BookOpen size={20} />, label: 'Vazifalar' }, // 👈 Qaytarildi
     { path: '/chat', icon: <MessageCircle size={20} />, label: 'Xabarlar', isChat: true },
     { path: '/debtors', icon: <AlertCircle size={20} />, label: 'Qarzdorlar' },
   ];
 
+  // O'QUVCHI MENYUSI
   const studentNavItems = [
     { path: '/', icon: <LayoutDashboard size={20} />, label: 'Asosiy' },
     { path: '/chat', icon: <MessageCircle size={20} />, label: 'Chat', isChat: true },
@@ -66,7 +67,6 @@ const MobileNavbar = ({ role }) => {
 
   const navItems = role === 'student' ? studentNavItems : teacherNavItems;
 
-  // 🔥 MUHIM TUZATISH: Shartni HOOKLARDAN KEYINGA qo'ydik
   // Agar Chat sahifasida bo'lsak, Navbar ko'rinmaydi
   if (location.pathname === '/chat') {
     return null;
@@ -82,12 +82,18 @@ const MobileNavbar = ({ role }) => {
           let activeBg = 'bg-indigo-600 shadow-indigo-200';
           let activeText = 'text-indigo-600';
 
+          // Ranglarni sozlash
           if (item.path === '/debtors') {
             activeBg = 'bg-rose-500 shadow-rose-200';
             activeText = 'text-rose-500';
           } else if (item.path === '/games') {
             activeBg = 'bg-purple-600 shadow-purple-200';
             activeText = 'text-purple-600';
+          } else if (item.path === '/assignments') {
+             // Vazifalar uchun to'q sariq (Orange) yoki oddiy Indigo ishlatishingiz mumkin
+             // Hozircha ajralib turishi uchun Orange qilib qo'ydim
+             activeBg = 'bg-orange-500 shadow-orange-200';
+             activeText = 'text-orange-500';
           }
 
           return (

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  ArrowLeft, Star, X, Loader2, Edit2, Trash2, 
+  ArrowLeft, X, Loader2, Edit2, Trash2, 
   UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar,
   Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen
 } from 'lucide-react';
@@ -440,14 +440,14 @@ const GroupDetails = () => {
         )}
       </div>
 
-      {/* --- MODAL: GRADING --- */}
+      {/* --- MODAL: GRADING (FIXED BUTTON) --- */}
       {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsGradeModalOpen(false)}></div>
-          <div className="bg-white w-full max-w-lg h-[90vh] sm:h-[80vh] rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300">
+          <div className="bg-white w-full max-w-lg h-[90vh] sm:h-[80vh] rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
             
-            {/* Header */}
-            <div className="p-5 bg-slate-900 text-white rounded-t-[2.5rem] shrink-0 flex items-center justify-between relative overflow-hidden">
+            {/* 1. Header (Fixed) */}
+            <div className="p-5 bg-slate-900 text-white shrink-0 flex items-center justify-between relative overflow-hidden">
                 <div className="flex items-center gap-3 relative z-10">
                     <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 overflow-hidden"><img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt=""/></div>
                     <div>
@@ -458,9 +458,9 @@ const GroupDetails = () => {
                 <button onClick={() => setIsGradeModalOpen(false)} className="relative z-10 p-2 bg-white/10 rounded-full hover:bg-white/20"><X size={20}/></button>
             </div>
 
-            {/* Scrollable Content */}
+            {/* 2. Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50">
-               <form onSubmit={handleSaveAllGrades} className="space-y-4 pb-24">
+               <form onSubmit={handleSaveAllGrades} className="space-y-4">
                   {Object.keys(groupedLessons).map((month) => (
                       <div key={month} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                           <div onClick={() => toggleModalMonth(month)} className="p-3 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center cursor-pointer">
@@ -483,7 +483,7 @@ const GroupDetails = () => {
                                                   const score = gradeScores[key] || '';
                                                   const isSaved = savedStatus[key];
                                                   const isHighlighted = location.state?.highlightKey === key;
-                                                  // Logic for border color
+                                                  
                                                   let borderColor = "border-slate-200 focus-within:border-indigo-500";
                                                   if (score && score < 60) borderColor = "border-rose-300 bg-rose-50/30";
                                                   else if (score >= 60) borderColor = "border-emerald-300 bg-emerald-50/30";
@@ -516,8 +516,8 @@ const GroupDetails = () => {
                </form>
             </div>
 
-            {/* Sticky Footer */}
-            <div className="p-4 bg-white border-t border-slate-100 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {/* 3. Sticky Footer (Button) */}
+            <div className="p-4 bg-white border-t border-slate-100 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
                <button onClick={handleSaveAllGrades} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-200 active:scale-95 transition-all uppercase text-xs tracking-widest flex items-center justify-center gap-2">
                   {loading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Save Changes</>}
                </button>
