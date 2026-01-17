@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  ArrowLeft, X, Loader2, Edit2, Trash2, 
+  ArrowLeft, Star, X, Loader2, Edit2, Trash2, 
   UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar,
   Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen
 } from 'lucide-react';
@@ -341,7 +341,6 @@ const GroupDetails = () => {
 
                 <div className="space-y-3 pb-24">
                    {displayedStudents.map((s, index) => {
-                     // Styling logic
                      let rankStyle = "bg-slate-100 text-slate-500";
                      if (studentViewMode === 'leaderboard') {
                         if (index === 0) rankStyle = "bg-yellow-400 text-white shadow-lg shadow-yellow-200";
@@ -398,9 +397,7 @@ const GroupDetails = () => {
                 </div>
 
                 <div className="space-y-6 relative">
-                    {/* Vertical Line */}
                     <div className="absolute left-4 top-4 bottom-0 w-0.5 bg-slate-200"></div>
-
                     {Object.keys(groupedLessons).map((month) => (
                         <div key={month} className="relative z-10">
                             <div className="sticky top-[130px] z-20 mb-4 ml-10">
@@ -409,9 +406,7 @@ const GroupDetails = () => {
                             <div className="space-y-4 pl-10">
                                 {groupedLessons[month].map((l) => (
                                     <div key={l.id} className="relative group bg-white p-4 rounded-2xl border border-slate-200 shadow-sm active:scale-[0.99] transition-transform">
-                                        {/* Timeline Dot */}
                                         <div className="absolute -left-[30px] top-6 w-4 h-4 rounded-full bg-white border-4 border-indigo-500 shadow-sm"></div>
-                                        
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <div className="flex items-center gap-2 mb-1">
@@ -440,14 +435,15 @@ const GroupDetails = () => {
         )}
       </div>
 
-      {/* --- MODAL: GRADING (FIXED BUTTON) --- */}
+      {/* --- MODAL: GRADING (FIXED & HIGH Z-INDEX) --- */}
       {isGradeModalOpen && selectedStudent && (
-        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6">
+        <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsGradeModalOpen(false)}></div>
-          <div className="bg-white w-full max-w-lg h-[90vh] sm:h-[80vh] rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
+          {/* 🔥 h-[80dvh] + z-index */}
+          <div className="bg-white w-full max-w-lg h-[80dvh] sm:h-[80vh] rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
             
-            {/* 1. Header (Fixed) */}
-            <div className="p-5 bg-slate-900 text-white shrink-0 flex items-center justify-between relative overflow-hidden">
+            {/* Header (Fixed) */}
+            <div className="p-5 bg-slate-900 text-white shrink-0 flex items-center justify-between relative overflow-hidden z-50">
                 <div className="flex items-center gap-3 relative z-10">
                     <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 overflow-hidden"><img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt=""/></div>
                     <div>
@@ -458,7 +454,7 @@ const GroupDetails = () => {
                 <button onClick={() => setIsGradeModalOpen(false)} className="relative z-10 p-2 bg-white/10 rounded-full hover:bg-white/20"><X size={20}/></button>
             </div>
 
-            {/* 2. Scrollable Content */}
+            {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50">
                <form onSubmit={handleSaveAllGrades} className="space-y-4">
                   {Object.keys(groupedLessons).map((month) => (
@@ -516,8 +512,8 @@ const GroupDetails = () => {
                </form>
             </div>
 
-            {/* 3. Sticky Footer (Button) */}
-            <div className="p-4 bg-white border-t border-slate-100 shrink-0 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {/* Footer Button (Fixed) */}
+            <div className="p-4 bg-white border-t border-slate-100 shrink-0 z-50 relative pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                <button onClick={handleSaveAllGrades} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-200 active:scale-95 transition-all uppercase text-xs tracking-widest flex items-center justify-center gap-2">
                   {loading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Save Changes</>}
                </button>
@@ -532,12 +528,11 @@ const GroupDetails = () => {
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
           <div className="bg-white w-full sm:w-auto sm:min-w-[400px] rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 pb-[calc(2rem+env(safe-area-inset-bottom))] relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
             <h3 className="text-xl font-black text-slate-800 mb-6 uppercase text-center italic">New Student</h3>
-            
+            {/* Add Student Content */}
             <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
                <button onClick={() => setAddMode('single')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Single</button>
                <button onClick={() => setAddMode('bulk')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'bulk' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Bulk</button>
             </div>
-
             {addMode === 'single' ? (
               <div className="space-y-4">
                 <input type="text" placeholder="Full Name" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" value={newStudentName} onChange={e=>setNewStudentName(e.target.value)} />
@@ -546,7 +541,6 @@ const GroupDetails = () => {
             ) : (
               <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-32 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all resize-none" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
             )}
-
             <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-lg active:scale-95 transition-transform">
               {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Add Student'}
             </button>
@@ -563,7 +557,6 @@ const GroupDetails = () => {
               <form onSubmit={handleAddLesson} className="space-y-4">
                 <input type="date" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonDate} onChange={e => setLessonDate(e.target.value)} />
                 <input type="text" placeholder="Topic Name" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonTopic} onChange={e => setLessonTopic(e.target.value)} />
-                
                 <div className="space-y-2">
                   <div className="flex justify-between items-center px-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasks / Homework</label>
