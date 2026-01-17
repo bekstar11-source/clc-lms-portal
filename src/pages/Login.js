@@ -63,11 +63,11 @@ const Login = () => {
         className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat transform scale-105" // scale-105 ozgina yaqinlashtiradi
         style={{
             // Yangi, issiqroq va ta'limga oid rasm
-            backgroundImage: "url('https://images.unsplash.com/photo-1497633762265-9d179a990aa6?q=80&w=2073&auto=format&fit=crop')",
+            backgroundImage: "url('https://github.com/user-attachments/assets/d082f3c3-05e2-453b-ad77-8874cabbf78f')",
         }}
       >
         {/* Qoraytiruvchi qatlam ( biroz kuchaytirildi ) */}
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-[3px]"></div>
+        <div className="absolute inset-0 bg-black/35 backdrop-blur-[0px]"></div>
       </div>
 
       {/* 2. DEKORATIV DOIRALAR */}

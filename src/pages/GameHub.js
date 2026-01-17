@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Trophy, Gamepad2, Zap, ArrowRight, Sparkles, 
-  BrainCircuit, AlignLeft, Crown, Rocket, ArrowLeft, Loader2 
+  BrainCircuit, AlignLeft, Crown, Rocket, ArrowLeft 
 } from 'lucide-react';
 import { doc, getDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -15,7 +15,7 @@ const GameHub = () => {
 
   // --- HAPTIC HELPER ---
   const triggerHaptic = () => {
-    if (navigator.vibrate) navigator.vibrate(10); // Light tap
+    if (navigator.vibrate) navigator.vibrate(10); 
   };
 
   useEffect(() => {
@@ -60,7 +60,7 @@ const GameHub = () => {
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
   };
 
-  // Skeleton Loader Component for slick loading feel
+  // Skeleton Loader
   const LeaderboardSkeleton = () => (
     <div className="flex gap-3 overflow-hidden pb-2">
       {[1,2,3,4].map(i => (
@@ -74,11 +74,12 @@ const GameHub = () => {
   );
 
   return (
-    // Changed min-h-screen to min-h-[100dvh] for mobile browsers
-    <div className="min-h-[100dvh] bg-slate-900 font-sans pb-28 md:pb-12 text-white overflow-x-hidden">
+    // 🔥 ASOSIY O'ZGARISH: fixed inset-0 va h-[100dvh]
+    // Bu sahifani ekranga mixlaydi, faqat ichki qism scroll bo'ladi
+    <div className="fixed inset-0 h-[100dvh] bg-slate-900 font-sans text-white overflow-hidden flex flex-col">
       
       {/* --- HEADER (Fixed & Safe) --- */}
-      <div className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800/50 pt-[calc(0.5rem+env(safe-area-inset-top))] p-4 shadow-sm">
+      <div className="relative z-30 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800/50 pt-[calc(0.5rem+env(safe-area-inset-top))] p-4 shadow-sm shrink-0">
         <div className="flex justify-between items-center max-w-4xl mx-auto">
           <div className="flex items-center gap-3">
             <button 
@@ -101,24 +102,25 @@ const GameHub = () => {
         </div>
       </div>
 
-      <div className="p-4 max-w-4xl mx-auto space-y-8 mt-2">
+      {/* --- SCROLLABLE CONTENT --- */}
+      {/* overscroll-contain rezina effektini yo'qotadi */}
+      <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-8 overscroll-contain">
         
         {/* --- HALL OF FAME (Horizontal Scroll) --- */}
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between mb-4 px-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                     <Rocket className="text-orange-500 animate-pulse" size={20} />
                     <h2 className="text-sm font-black uppercase tracking-widest text-slate-400">Top Players</h2>
                 </div>
-                {/* Visual cue for scrolling */}
                 <span className="text-[10px] text-slate-600 font-bold uppercase mr-1">Swipe &rarr;</span>
             </div>
+            
             
             {loadingLeaders ? (
                 <LeaderboardSkeleton />
             ) : (
-                // 🔥 Horizontal Scroll Container (Much better for mobile)
-                <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide snap-x snap-mandatory">
+                <div className="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-hide snap-x snap-mandatory">
                     {leaders.map((student, index) => {
                         const { title, color } = getTitle(index);
                         const isTop3 = index < 3;
@@ -129,7 +131,6 @@ const GameHub = () => {
                                  index === 2 ? 'border-orange-400/50' : 
                                  'border-slate-700 bg-slate-800/50'}`}>
                                 
-                                {/* Rank Badge */}
                                 <div className={`absolute -top-2 -left-2 w-6 h-6 rounded-full flex items-center justify-center font-black text-[11px] border-2 border-slate-900 shadow-sm z-10
                                     ${index === 0 ? 'bg-yellow-400 text-slate-900' : 
                                       index === 1 ? 'bg-slate-300 text-slate-900' : 
@@ -160,7 +161,7 @@ const GameHub = () => {
         </div>
 
         {/* --- O'YINLAR RO'YXATI --- */}
-        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100 pb-safe-bottom">
+        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
           <div className="flex items-center gap-2 mb-2 px-1">
               <Gamepad2 className="text-indigo-500" size={20} />
               <h2 className="text-sm font-black uppercase tracking-widest text-slate-400">O'yinlar</h2>
@@ -233,7 +234,7 @@ const GameHub = () => {
           </div>
 
           {/* COMING SOON */}
-          <div className="relative overflow-hidden bg-slate-800/50 p-5 rounded-[2rem] text-slate-500 border border-slate-700 border-dashed flex items-center justify-center gap-3">
+          <div className="relative overflow-hidden bg-slate-800/50 p-5 rounded-[2rem] text-slate-500 border border-slate-700 border-dashed flex items-center justify-center gap-3 mb-10">
               <Sparkles size={20} className="animate-pulse text-slate-600"/>
               <span className="font-bold text-xs uppercase tracking-widest">Tez kunda yangi o'yin...</span>
           </div>

@@ -6,17 +6,19 @@ import {
 } from 'firebase/firestore';
 import { 
   LayoutGrid, Sparkles, BookOpen, ChevronRight,
-  CheckCircle2, XCircle, AlertTriangle, 
-  Bell, Search, ArrowRight, MessageCircle, RefreshCw, Loader2
+  XCircle, AlertTriangle, 
+  Bell, ArrowRight, MessageCircle, RefreshCw
 } from 'lucide-react';
 
 // --- SKELETON LOADER ---
 const DashboardSkeleton = () => (
-  <div className="p-4 space-y-6 max-w-7xl mx-auto pt-[calc(1rem+env(safe-area-inset-top))]">
-      <div className="h-32 w-full bg-slate-200 rounded-[2rem] animate-pulse"></div>
-      <div className="grid grid-cols-2 gap-4">
-          <div className="h-40 bg-slate-200 rounded-[2rem] animate-pulse"></div>
-          <div className="h-40 bg-slate-200 rounded-[2rem] animate-pulse"></div>
+  <div className="min-h-screen relative bg-slate-50">
+      <div className="p-4 space-y-6 max-w-7xl mx-auto pt-[calc(1rem+env(safe-area-inset-top))]">
+          <div className="h-32 w-full bg-slate-200 rounded-[2rem] animate-pulse"></div>
+          <div className="grid grid-cols-2 gap-4">
+              <div className="h-40 bg-slate-200 rounded-[2rem] animate-pulse"></div>
+              <div className="h-40 bg-slate-200 rounded-[2rem] animate-pulse"></div>
+          </div>
       </div>
   </div>
 );
@@ -47,7 +49,7 @@ const TeacherDashboard = () => {
     else setActiveTab('groups');
   }, [location.pathname]);
 
-  // 1. 🔥 MA'LUMOTLARNI YUKLASH (YANGILANGAN MANTIQ BILAN)
+  // 1. 🔥 MA'LUMOTLARNI YUKLASH
   const fetchData = async (forceRefresh = false) => {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
@@ -94,7 +96,7 @@ const TeacherDashboard = () => {
       const groupsDataPromises = fetchedGroups.map(async (grp) => {
           const qStudents = query(collection(db, "students"), where("groupId", "==", grp.id));
           const qGrades = query(collection(db, "grades"), where("groupId", "==", grp.id));
-          const qLessons = query(collection(db, "lessons"), where("groupId", "==", grp.id)); // 🔥 Darslarni ham yuklaymiz
+          const qLessons = query(collection(db, "lessons"), where("groupId", "==", grp.id));
 
           const [studSnap, gradesSnap, lessonsSnap] = await Promise.all([
               getDocs(qStudents), 
@@ -108,7 +110,7 @@ const TeacherDashboard = () => {
               students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })),
               grades: gradesSnap.docs.map(d => d.data()),
               gradeDocs: gradesSnap.docs,
-              lessons: lessonsSnap.docs.map(d => ({ id: d.id, ...d.data() })) // 🔥 Darslar
+              lessons: lessonsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
           };
       });
 
@@ -138,29 +140,24 @@ const TeacherDashboard = () => {
               }
           });
 
-          // 🔥 2. DEBTORS (YANGILANGAN FORMULA)
-          // Faqat active (qoldirilmagan) darslarni sanaymiz
+          // 2. DEBTORS
           const activeLessons = lessons.filter(l => !l.isDelayed);
-          
           if (activeLessons.length > 0) {
               students.forEach(student => {
                   const studentGrades = grades.filter(g => g.studentId === student.id);
                   let totalScore = 0;
 
-                  // Har bir active dars uchun bahoni tekshiramiz
                   activeLessons.forEach(lesson => {
                       const grade = studentGrades.find(g => g.lessonId === lesson.id);
                       if (grade) {
                           totalScore += Number(grade.score) || 0;
                       } else {
-                          totalScore += 0; // Topshirmagan = 0
+                          totalScore += 0;
                       }
                   });
 
-                  // O'rtacha = Jami Ball / Jami Darslar
                   const average = Math.round(totalScore / activeLessons.length);
 
-                  // Agar 60 dan past bo'lsa - QARZDOR
                   if (average < 60) {
                       allDebtors.push({
                           id: student.id,
@@ -256,149 +253,144 @@ const TeacherDashboard = () => {
 
   const getAvatarUrl = (seed) => `https://api.dicebear.com/7.x/notionists/svg?seed=${seed || 'teacher'}&backgroundColor=e0e7ff,c7d2fe`;
 
-  if (loading) return <div className="min-h-screen bg-slate-50"><DashboardSkeleton /></div>;
+  if (loading) return <DashboardSkeleton />;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-28 md:pb-10 font-sans touch-manipulation">
+    // 🔥 ASOSIY O'ZGARISH: ORQA FON RASMI QO'SHILDI
+    <div className="min-h-screen relative font-sans touch-manipulation pb-28 md:pb-10">
       
-      {/* --- HEADER --- */}
-      <div className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur-xl border-b border-slate-200/50 px-6 py-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center transition-all duration-300">
-         <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1 mb-0.5">
-               <Sparkles size={10} className="text-indigo-500"/> Teacher Portal
-            </p>
-            <h1 className="text-xl font-black text-slate-800">
-                Hi, <span className="text-indigo-600">{teacherName.split(' ')[0]}</span>
-            </h1>
-         </div>
-
-         <div className="flex items-center gap-3">
-             <button 
-                onClick={handleForceRefresh} 
-                className={`p-2.5 bg-white text-slate-400 hover:text-indigo-600 rounded-xl shadow-sm border border-slate-100 active:scale-95 transition-all ${refreshing ? 'animate-spin text-indigo-600' : ''}`}
-             >
-                <RefreshCw size={20}/>
-             </button>
-
-             <button 
-                onClick={() => {triggerHaptic(); navigate('/chat');}} 
-                className="hidden md:flex p-2.5 bg-white text-slate-400 hover:text-indigo-600 rounded-xl shadow-sm border border-slate-100 active:scale-95 transition-all relative"
-             >
-                <MessageCircle size={20}/>
-                {unreadMessages > 0 && (
-                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-                )}
-             </button>
-
-             <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 overflow-hidden shadow-sm">
-                 <img src={getAvatarUrl(teacherName)} alt="me" className="w-full h-full object-cover"/>
-             </div>
-         </div>
+      {/* 1. BACKGROUND IMAGE LAYER */}
+      <div className="fixed inset-0 z-0">
+         <div 
+           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+           style={{
+             backgroundImage: "url('https://github.com/user-attachments/assets/3e4e49aa-ca3f-414f-8790-48ccb56b825b')"
+           }}
+         ></div>
+         {/* Oq parda (Overlay) - Yozuvlar o'qilishi uchun */}
+         <div className="absolute inset-0 bg-slate-40/70 backdrop-blur-sm"></div>
       </div>
 
-      <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
-        
-        {/* GROUPS TAB */}
-        {activeTab === 'groups' && (
-            <div className="animate-in fade-in slide-in-from-left-4 duration-500">
-                {retakeAlerts.length > 0 && (
-                    <div className="mb-8">
-                        <div className="flex items-center justify-between mb-3 px-2">
-                            <div className="flex items-center gap-2">
-                                <div className="relative"><Bell size={18} className="text-indigo-600" /><span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span></div>
-                                <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Tekshiruv ({retakeAlerts.length})</h2>
-                            </div>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase">Swipe &rarr;</span>
-                        </div>
-                        <div className="flex overflow-x-auto gap-3 pb-4 -mx-4 px-6 scrollbar-hide snap-x">
-                            {retakeAlerts.map((alert, idx) => (
-                                <div key={idx} onClick={() => handleAlertClick(alert)} className="snap-center shrink-0 w-[260px] bg-white p-4 rounded-[1.5rem] border border-indigo-100 shadow-sm shadow-indigo-100/50 relative overflow-hidden active:scale-[0.98] transition-transform">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 truncate max-w-[120px]">{alert.groupName}</span>
-                                        <button onClick={(e) => handleRejectRetake(e, alert.id)} className="w-6 h-6 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-rose-50 hover:text-rose-500 transition-colors"><XCircle size={14}/></button>
-                                    </div>
-                                    <h4 className="font-bold text-slate-800 text-sm truncate">{alert.studentName}</h4>
-                                    <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{alert.topic}</p>
-                                    <div className="mt-3 flex items-center gap-1 text-[10px] font-black text-indigo-500 uppercase tracking-wide">Tekshirish <ArrowRight size={12}/></div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+      {/* 2. CONTENT LAYER (Hamma narsa shu ichida) */}
+      <div className="relative z-10">
+          
+          {/* --- HEADER --- */}
+          <div className="sticky top-0 z-30 bg-white/70 backdrop-blur-xl border-b border-white/50 px-6 py-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center transition-all duration-300 shadow-sm">
+            <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1 mb-0.5">
+                  <Sparkles size={10} className="text-indigo-600"/> Teacher Portal
+                </p>
+                <h1 className="text-xl font-black text-slate-800">
+                    Hi, <span className="text-indigo-600">{teacherName.split(' ')[0]}</span>
+                </h1>
+            </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                    {groups.map((group, index) => {
-                        const style = index % 2 === 0 ? 'from-blue-500 to-indigo-600' : 'from-emerald-400 to-teal-600';
-                        return (
-                            <div key={group.id} onClick={() => { triggerHaptic(); navigate(`/group/${group.id}`); }} className="relative bg-white rounded-[1.5rem] p-5 shadow-sm border border-slate-50 cursor-pointer active:scale-[0.97] transition-all flex flex-col justify-between min-h-[150px]">
-                                <div>
-                                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${style} flex items-center justify-center text-white shadow-md mb-3`}><BookOpen size={18} strokeWidth={2.5} /></div>
-                                    <h3 className="text-sm font-black text-slate-800 leading-tight line-clamp-2">{group.name}</h3>
-                                    <p className="mt-1 text-[9px] font-black uppercase tracking-wider text-indigo-600 opacity-80">Active Class</p>
-                                </div>
-                                <div className="mt-3 flex justify-end"><div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600"><ChevronRight size={16} /></div></div>
-                            </div>
-                        );
-                    })}
+            <div className="flex items-center gap-3">
+                <button 
+                    onClick={handleForceRefresh} 
+                    className={`p-2.5 bg-white/80 text-slate-500 hover:text-indigo-600 rounded-xl shadow-sm border border-white active:scale-95 transition-all ${refreshing ? 'animate-spin text-indigo-600' : ''}`}
+                >
+                    <RefreshCw size={20}/>
+                </button>
+
+                <button 
+                    onClick={() => {triggerHaptic(); navigate('/chat');}} 
+                    className="hidden md:flex p-2.5 bg-white/80 text-slate-500 hover:text-indigo-600 rounded-xl shadow-sm border border-white active:scale-95 transition-all relative"
+                >
+                    <MessageCircle size={20}/>
+                    {unreadMessages > 0 && (
+                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
+                    )}
+                </button>
+
+                <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 overflow-hidden shadow-sm">
+                    <img src={getAvatarUrl(teacherName)} alt="me" className="w-full h-full object-cover"/>
                 </div>
             </div>
-        )}
+          </div>
 
-        {/* DEBTORS TAB */}
-        {activeTab === 'debtors' && (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
-                    {debtors.length === 0 ? (
-                        <div className="p-12 text-center flex flex-col items-center">
-                            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4"><Sparkles className="text-emerald-500" size={32}/></div>
-                            <h3 className="text-sm font-black text-slate-800">Hammasi joyida!</h3>
-                        </div>
-                    ) : (
-                        <div className="divide-y divide-slate-50">
-                            {debtors.map((student, idx) => (
-                                <div key={idx} onClick={() => { triggerHaptic(); navigate(`/group/${student.groupId}`, { state: { openStudentId: student.id }})}} className="p-4 hover:bg-red-50/20 transition-colors cursor-pointer flex items-center justify-between gap-3 active:bg-red-50">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <div className="relative"><div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden"><img src={getAvatarUrl(student.avatarSeed || student.name)} className="w-full h-full object-cover" alt="s"/></div></div>
-                                        <div className="min-w-0"><h4 className="font-bold text-slate-800 text-sm truncate">{student.name}</h4><span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded truncate max-w-[120px]">{student.groupName}</span></div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg">{student.averageScore}%</span>
-                                        <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 shrink-0"><ChevronRight size={16}/></div>
-                                    </div>
+          <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+            
+            {/* GROUPS TAB */}
+            {activeTab === 'groups' && (
+                <div className="animate-in fade-in slide-in-from-left-4 duration-500">
+                    {retakeAlerts.length > 0 && (
+                        <div className="mb-8">
+                            <div className="flex items-center justify-between mb-3 px-2">
+                                <div className="flex items-center gap-2">
+                                    <div className="relative"><Bell size={18} className="text-indigo-600" /><span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span></div>
+                                    <h2 className="text-xs font-black text-slate-600 uppercase tracking-widest">Tekshiruv ({retakeAlerts.length})</h2>
                                 </div>
-                            ))}
+                                <span className="text-[9px] font-bold text-slate-500 uppercase">Swipe &rarr;</span>
+                            </div>
+                            <div className="flex overflow-x-auto gap-3 pb-4 -mx-4 px-6 scrollbar-hide snap-x">
+                                {retakeAlerts.map((alert, idx) => (
+                                    <div key={idx} onClick={() => handleAlertClick(alert)} className="snap-center shrink-0 w-[260px] bg-white/90 backdrop-blur-md p-4 rounded-[1.5rem] border border-indigo-100 shadow-sm shadow-indigo-100/30 relative overflow-hidden active:scale-[0.98] transition-transform">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 truncate max-w-[120px]">{alert.groupName}</span>
+                                            <button onClick={(e) => handleRejectRetake(e, alert.id)} className="w-6 h-6 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-rose-50 hover:text-rose-500 transition-colors"><XCircle size={14}/></button>
+                                        </div>
+                                        <h4 className="font-bold text-slate-800 text-sm truncate">{alert.studentName}</h4>
+                                        <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{alert.topic}</p>
+                                        <div className="mt-3 flex items-center gap-1 text-[10px] font-black text-indigo-500 uppercase tracking-wide">Tekshirish <ArrowRight size={12}/></div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
+
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                        {groups.map((group, index) => {
+                            const style = index % 2 === 0 ? 'from-blue-500 to-indigo-600' : 'from-emerald-400 to-teal-600';
+                            return (
+                                <div key={group.id} onClick={() => { triggerHaptic(); navigate(`/group/${group.id}`); }} className="relative bg-white/90 backdrop-blur-md rounded-[1.5rem] p-5 shadow-sm border border-white cursor-pointer active:scale-[0.97] transition-all flex flex-col justify-between min-h-[150px]">
+                                    <div>
+                                        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${style} flex items-center justify-center text-white shadow-md mb-3`}><BookOpen size={18} strokeWidth={2.5} /></div>
+                                        <h3 className="text-sm font-black text-slate-800 leading-tight line-clamp-2">{group.name}</h3>
+                                        <p className="mt-1 text-[9px] font-black uppercase tracking-wider text-indigo-600 opacity-80">Active Class</p>
+                                    </div>
+                                    <div className="mt-3 flex justify-end"><div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600"><ChevronRight size={16} /></div></div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
+            )}
+
+            {/* DEBTORS TAB */}
+            {activeTab === 'debtors' && (
+                <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="bg-white/90 backdrop-blur-md rounded-[2rem] border border-white shadow-sm overflow-hidden">
+                        {debtors.length === 0 ? (
+                            <div className="p-12 text-center flex flex-col items-center">
+                                <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4"><Sparkles className="text-emerald-500" size={32}/></div>
+                                <h3 className="text-sm font-black text-slate-800">Hammasi joyida!</h3>
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-slate-50">
+                                {debtors.map((student, idx) => (
+                                    <div key={idx} onClick={() => { triggerHaptic(); navigate(`/group/${student.groupId}`, { state: { openStudentId: student.id }})}} className="p-4 hover:bg-red-50/20 transition-colors cursor-pointer flex items-center justify-between gap-3 active:bg-red-50">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="relative"><div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden"><img src={getAvatarUrl(student.avatarSeed || student.name)} className="w-full h-full object-cover" alt="s"/></div></div>
+                                            <div className="min-w-0"><h4 className="font-bold text-slate-800 text-sm truncate">{student.name}</h4><span className="text-[9px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded truncate max-w-[120px]">{student.groupName}</span></div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg">{student.averageScore}%</span>
+                                            <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 shrink-0"><ChevronRight size={16}/></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+          </div>
+
+          
             </div>
-        )}
       </div>
-
-      {/* --- TEACHER BOTTOM NAVIGATION (MOBILE) --- */}
-      {location.pathname !== '/chat' && (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white/95 backdrop-blur-xl border-t border-slate-200 flex justify-around py-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-[999] shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.05)]">
-          
-          <button onClick={() => {triggerHaptic(); setActiveTab('groups');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'groups' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
-              <LayoutGrid size={24} strokeWidth={2.5} />
-              <span className="text-[10px] font-black">Guruhlar</span>
-          </button>
-          
-          <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 text-slate-400 hover:text-indigo-600 relative">
-              <MessageCircle size={24} strokeWidth={2.5} />
-              <span className="text-[10px] font-black">Xabarlar</span>
-              {unreadMessages > 0 && (
-                  <span className="absolute top-1 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-              )}
-          </button>
-
-          <button onClick={() => {triggerHaptic(); setActiveTab('debtors');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'debtors' ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
-              <AlertTriangle size={24} strokeWidth={2.5} />
-              <span className="text-[10px] font-black">Qarzdorlar</span>
-          </button>
-        </div>
-      )}
-
-    </div>
+    
   );
 };
 
