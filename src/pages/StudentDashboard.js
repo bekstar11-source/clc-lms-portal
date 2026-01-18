@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   LogOut, Settings, Trophy, AlertCircle, BookOpen,
-  ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw, LayoutDashboard, 
-  ClipboardList, Star, Zap, Gamepad2, Megaphone, Timer, CheckCircle2, X,
-  MessageCircle, AlertTriangle, Medal, ChevronRight, TrendingUp, Home, PieChart
+  ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw,
+  ClipboardList, Zap, Gamepad2, Megaphone, Timer, CheckCircle2, X,
+  MessageCircle, AlertTriangle, Medal, ChevronRight, TrendingUp, Home, PieChart,
+  Image as ImageIcon // Fon rasmi ikonkasini
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, orderBy, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore'; 
@@ -12,10 +13,21 @@ import { signOut } from 'firebase/auth';
 import { 
   XAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
+import { App } from '@capacitor/app'; // 🔥 BACK TUGMASI UCHUN MUHIM IMPORT
 
 // --- CONFIG ---
 const CACHE_KEY = 'student_dashboard_cache';
 const CACHE_DURATION = 10 * 60 * 1000; 
+
+// 🔥 FON RASMLARI RO'YXATI
+const BACKGROUNDS = [
+  "https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448", // Original
+  "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop", // Kosmos
+  "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=2029&auto=format&fit=crop", // Gradient
+  "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop", // Yorqin
+  "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?q=80&w=2072&auto=format&fit=crop", // Tungi
+  "https://github.com/user-attachments/assets/060d6d79-1665-4c0a-8ec5-07c7fdbfb6c6"  // Neon
+];
 
 // --- HELPERS ---
 const triggerHaptic = (type = 'tap') => {
@@ -82,11 +94,49 @@ const StudentDashboard = () => {
   const [unreadMessages, setUnreadMessages] = useState(0); 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
-  
+
+  // 🔥 YANGI STATELAR: FON, FON MENYUSI, CHIQISH MODALI
+  const [bgImage, setBgImage] = useState(BACKGROUNDS[0]);
+  const [isBgMenuOpen, setIsBgMenuOpen] = useState(false);
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false); // 🔥 Chiqishni so'rash uchun
+
   const hasNewHomework = notifications.some(n => n.type === 'lesson');
+
+  // --- ANDROID BACK BUTTON LOGIC ---
+  useEffect(() => {
+    const backButtonListener = App.addListener('backButton', () => {
+      // 1. Agar chiqish oynasi ochiq bo'lsa -> Chiqish
+      if (isExitModalOpen) {
+        App.exitApp();
+        return;
+      }
+      // 2. Modallar ochiq bo'lsa -> Yopish
+      if (isNotifOpen) { setIsNotifOpen(false); return; }
+      if (isBgMenuOpen) { setIsBgMenuOpen(false); return; }
+
+      // 3. Agar Asosiy (Dashboard) da bo'lmasa -> Dashboardga qaytish
+      if (activeTab !== 'dashboard') {
+        setActiveTab('dashboard');
+        triggerHaptic();
+      } 
+      // 4. Asosiyda bo'lsa -> Chiqish oynasini ochish
+      else {
+        setIsExitModalOpen(true);
+        triggerHaptic();
+      }
+    });
+
+    return () => {
+      backButtonListener.then(handler => handler.remove());
+    };
+  }, [isExitModalOpen, isNotifOpen, isBgMenuOpen, activeTab]);
 
   // --- CACHING & FETCHING ---
   const loadFromCache = () => {
+    // Foni yuklash
+    const savedBg = localStorage.getItem('student_bg');
+    if (savedBg) setBgImage(savedBg);
+
     const cached = localStorage.getItem(CACHE_KEY);
     if (!cached) return false;
     try {
@@ -314,7 +364,14 @@ const StudentDashboard = () => {
   };
   const groupedLessons = groupLessonsByMonth();
 
-  // --- NAVIGATION CONFIG ---
+  // 🔥 FONNI O'ZGARTIRISH HANDLER
+  const handleBgChange = (url) => {
+      triggerHaptic();
+      setBgImage(url);
+      localStorage.setItem('student_bg', url);
+      setIsBgMenuOpen(false);
+  };
+
   const navTabs = [
     { id: 'dashboard', label: 'Asosiy', icon: Home, color: 'text-purple-600', bg: 'bg-purple-100', glow: 'shadow-[0_0_15px_rgba(147,51,234,0.5)]', indicator: 'bg-purple-600' },
     { id: 'schedule', label: 'Vazifalar', icon: ClipboardList, color: 'text-blue-600', bg: 'bg-blue-100', glow: 'shadow-[0_0_15px_rgba(37,99,235,0.5)]', indicator: 'bg-blue-600' },
@@ -329,22 +386,20 @@ const StudentDashboard = () => {
   if (loading) return <div className="h-screen bg-slate-50 flex items-center justify-center"><DashboardSkeleton /></div>;
 
   return (
-    // 🔥 ASOSIY O'ZGARISH: fixed inset-0 va h-[100dvh]
-    // Bu sahifani ekranga mixlaydi va faqat ichki qism scroll bo'ladi
     <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-slate-50 font-sans touch-none overflow-hidden">
       
-      {/* ORQA FON RASMI (ABSOLUTE) */}
-      <div className="absolute inset-0 z-0">
+      {/* 🔥 DYNAMIC BACKGROUND */}
+      <div className="absolute inset-0 z-0 transition-all duration-500">
          <div 
-           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+           className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700"
            style={{
-             backgroundImage: "url('https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448')"
+             backgroundImage: `url('${bgImage}')`
            }}
          ></div>
          <div className="absolute inset-0 bg-white/20 backdrop-blur-1xl"></div>
       </div>
 
-      {/* --- HEADER (NAVBAR) - STATIC --- */}
+      {/* --- HEADER --- */}
       <nav className="relative z-50 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
             <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 shadow-sm">
@@ -356,6 +411,15 @@ const StudentDashboard = () => {
             </div>
             </div>
             <div className="flex gap-2 items-center">
+            
+            {/* 🔥 FONNI O'ZGARTIRISH TUGMASI */}
+            <button 
+                onClick={() => setIsBgMenuOpen(!isBgMenuOpen)} 
+                className={`p-2 rounded-xl transition-all ${isBgMenuOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}
+            >
+                <ImageIcon size={20} />
+            </button>
+
             <button onClick={handleRefresh} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl active:bg-slate-200 transition-colors">
                 <RefreshCcw size={20} className={isRefreshing ? "animate-spin text-indigo-500" : ""} />
             </button>
@@ -368,7 +432,27 @@ const StudentDashboard = () => {
             </div>
       </nav>
 
-      {/* --- NOTIFICATION SHEET (MODAL) --- */}
+      {/* 🔥 FON MENYUSI */}
+      {isBgMenuOpen && (
+          <div className="absolute top-20 right-4 z-[60] bg-white/90 backdrop-blur-xl p-4 rounded-[1.5rem] shadow-2xl border border-white w-64 animate-in slide-in-from-top-2 duration-200">
+              <div className="flex justify-between items-center mb-3 px-1">
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Fon Rasmini Tanlang</h3>
+                  <button onClick={() => setIsBgMenuOpen(false)} className="p-1 hover:bg-slate-100 rounded-full"><X size={16} className="text-slate-400"/></button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                  {BACKGROUNDS.map((bg, idx) => (
+                      <div 
+                        key={idx} 
+                        onClick={() => handleBgChange(bg)}
+                        className={`h-16 rounded-xl bg-cover bg-center cursor-pointer border-2 transition-all active:scale-95 ${bgImage === bg ? 'border-indigo-500 shadow-md scale-95' : 'border-transparent hover:border-slate-300'}`}
+                        style={{ backgroundImage: `url(${bg})` }}
+                      ></div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* --- NOTIFICATIONS --- */}
       {isNotifOpen && (
             <div className="fixed inset-0 z-[1000] flex items-end sm:items-start sm:justify-end sm:p-4 bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full sm:w-80 h-[80vh] sm:h-auto sm:max-h-[80vh] rounded-t-[2rem] sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-10 duration-300">
@@ -391,8 +475,7 @@ const StudentDashboard = () => {
             </div>
       )}
 
-      {/* --- SCROLLABLE CONTENT AREA --- */}
-      {/* 🔥 BU YERDA overscroll-contain QO'SHILDI */}
+      {/* --- SCROLLABLE CONTENT --- */}
       <div className="flex-1 overflow-y-auto z-10 relative scrollbar-hide pb-28 p-4 overscroll-contain">
         <div className="max-w-7xl mx-auto space-y-6">
             
@@ -656,6 +739,36 @@ const StudentDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* 🔥 CHIQISHNI TASDIQLASH MODALI */}
+      {isExitModalOpen && (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] p-6 w-full max-w-xs shadow-2xl border border-white/20 animate-in zoom-in-95 duration-200">
+            <div className="text-center mb-6">
+              <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <LogOut size={24} className="text-indigo-600 ml-1" />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-1">Chiqish?</h3>
+              <p className="text-sm font-medium text-slate-500">Ilovadan chiqib ketmoqchimisiz?</p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setIsExitModalOpen(false)} 
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors active:scale-95"
+              >
+                Yo'q
+              </button>
+              <button 
+                onClick={() => App.exitApp()} 
+                className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Ha, Chiqish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

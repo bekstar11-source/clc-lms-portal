@@ -5,10 +5,11 @@ import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, onSnapshot 
 } from 'firebase/firestore';
 import { 
-  LayoutGrid, Sparkles, BookOpen, ChevronRight,
+  LayoutGrid, Sparkles, BookOpen, ChevronRight, LogOut,
   XCircle, AlertTriangle, 
   Bell, ArrowRight, MessageCircle, RefreshCw, Users, UserCheck
 } from 'lucide-react';
+import { App } from '@capacitor/app'; // 🔥 BACK TUGMASI UCHUN
 
 // --- SKELETON LOADER ---
 const DashboardSkeleton = () => (
@@ -36,6 +37,7 @@ const TeacherDashboard = () => {
   const [unreadMessages, setUnreadMessages] = useState(0);
   
   const [activeTab, setActiveTab] = useState('groups');
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false); // 🔥 CHIQISH MODALI STATE
 
   const triggerHaptic = (type = 'tap') => {
     if (navigator.vibrate) {
@@ -49,7 +51,33 @@ const TeacherDashboard = () => {
     else setActiveTab('groups');
   }, [location.pathname]);
 
-  // 1. 🔥 MA'LUMOTLARNI YUKLASH (Asosiy va Assistent uchun)
+  // 🔥 ANDROID BACK TUGMASI LOGIKASI
+  useEffect(() => {
+    const backListener = App.addListener('backButton', () => {
+      // 1. Agar chiqish oynasi ochiq bo'lsa -> Chiqish
+      if (isExitModalOpen) {
+        App.exitApp();
+        return;
+      }
+
+      // 2. Agar "Guruhlar" (Asosiy) tabida BO'LMASAK -> Unga qaytamiz
+      if (activeTab !== 'groups') {
+        setActiveTab('groups');
+        triggerHaptic();
+      } 
+      // 3. Agar allaqachon "Guruhlar"da bo'lsak -> Chiqishni so'raymiz
+      else {
+        setIsExitModalOpen(true);
+        triggerHaptic();
+      }
+    });
+
+    return () => {
+      backListener.then(h => h.remove());
+    };
+  }, [activeTab, isExitModalOpen]);
+
+  // 1. MA'LUMOTLARNI YUKLASH
   const fetchData = async (forceRefresh = false) => {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
@@ -60,7 +88,6 @@ const TeacherDashboard = () => {
       const CACHE_KEY = `teacher_dash_${currentUser.uid}`;
       const cached = localStorage.getItem(CACHE_KEY);
 
-      // Keshni tekshirish
       if (!forceRefresh && cached) {
           const { data, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < 10 * 60 * 1000) {
@@ -76,7 +103,6 @@ const TeacherDashboard = () => {
 
       const userRef = doc(db, "students", currentUser.uid);
       
-      // 🔥 O'ZGARISH: Ikkita so'rov yuboramiz (Teacher VA Assistant uchun)
       const mainGroupsQuery = query(collection(db, "groups"), where("teacherId", "==", currentUser.uid));
       const assistGroupsQuery = query(collection(db, "groups"), where("assistantTeacherId", "==", currentUser.uid));
       
@@ -92,21 +118,16 @@ const TeacherDashboard = () => {
           setTeacherName(tName);
       }
       
-      // Guruhlarni formatlash va birlashtirish
       const mainGroups = mainGroupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data(), role: 'main' }));
       const assistGroups = assistGroupsSnap.docs.map(doc => ({ id: doc.id, ...doc.data(), role: 'assistant' }));
-      
-      // Barcha guruhlar (Dublikatlarni olib tashlash shart emas, chunki ID lar takrorlanmaydi, lekin xavfsizlik uchun birlashtiramiz)
       const fetchedGroups = [...mainGroups, ...assistGroups];
       
-      // Dublikatlarni tozalash (ehtimolga qarshi)
       const uniqueGroups = fetchedGroups.filter((group, index, self) =>
         index === self.findIndex((t) => t.id === group.id)
       );
 
       setGroups(uniqueGroups);
 
-      // Har bir guruh uchun ma'lumotlarni yuklash (Parallel)
       const groupsDataPromises = uniqueGroups.map(async (grp) => {
           const qStudents = query(collection(db, "students"), where("groupId", "==", grp.id));
           const qGrades = query(collection(db, "grades"), where("groupId", "==", grp.id));
@@ -137,7 +158,6 @@ const TeacherDashboard = () => {
           const studentsMap = {};
           students.forEach(s => studentsMap[s.id] = s.name);
 
-          // 1. RETAKES (Alerts)
           gradeDocs.forEach(d => {
               const g = d.data();
               if (g.status === 'retake_submitted') {
@@ -154,7 +174,6 @@ const TeacherDashboard = () => {
               }
           });
 
-          // 2. DEBTORS (Qarzdorlar)
           const activeLessons = lessons.filter(l => !l.isDelayed);
           if (activeLessons.length > 0) {
               students.forEach(student => {
@@ -328,7 +347,7 @@ const TeacherDashboard = () => {
             {activeTab === 'groups' && (
                 <div className="animate-in fade-in slide-in-from-left-4 duration-500">
                     
-                    {/* Retake Alerts (Asosiy va Assistent guruhlari uchun) */}
+                    {/* Retake Alerts */}
                     {retakeAlerts.length > 0 && (
                         <div className="mb-8">
                             <div className="flex items-center justify-between mb-3 px-2">
@@ -360,7 +379,7 @@ const TeacherDashboard = () => {
                             const isMain = group.role === 'main';
                             const style = isMain 
                                 ? (index % 2 === 0 ? 'from-blue-500 to-indigo-600' : 'from-emerald-400 to-teal-600')
-                                : 'from-amber-400 to-orange-500'; // Assistentlar uchun boshqa rang
+                                : 'from-amber-400 to-orange-500';
 
                             return (
                                 <div 
@@ -419,7 +438,7 @@ const TeacherDashboard = () => {
             )}
           </div>
 
-          {/* --- TEACHER BOTTOM NAVIGATION (MOBILE) --- */}
+          {/* --- TEACHER BOTTOM NAVIGATION --- */}
           {location.pathname !== '/chat' && (
             <div className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white/70 backdrop-blur-xl border-t border-white/40 flex justify-around py-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-[999] shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.05)]">
               
@@ -443,6 +462,37 @@ const TeacherDashboard = () => {
             </div>
           )}
       </div>
+
+      {/* 🔥 CHIQISHNI TASDIQLASH MODALI */}
+      {isExitModalOpen && (
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2rem] p-6 w-full max-w-xs shadow-2xl border border-white/20 animate-in zoom-in-95 duration-200">
+            <div className="text-center mb-6">
+              <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <LogOut size={24} className="text-indigo-600 ml-1" />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 mb-1">Chiqish?</h3>
+              <p className="text-sm font-medium text-slate-500">Ilovadan chiqib ketmoqchimisiz?</p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setIsExitModalOpen(false)} 
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors active:scale-95"
+              >
+                Yo'q
+              </button>
+              <button 
+                onClick={() => App.exitApp()} 
+                className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
+              >
+                Ha, Chiqish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

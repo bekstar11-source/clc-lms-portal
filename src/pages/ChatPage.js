@@ -11,11 +11,11 @@ import {
 
 // --- STYLES (Custom Scrollbar & Background) ---
 const styles = `
-  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(0, 0, 0, 0.1); border-radius: 20px; }
   .chat-background { background-color: #f0f2f5; background-image: radial-gradient(#e5e7eb 1px, transparent 1px); background-size: 20px 20px; }
-  .glass-header { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+  .glass-header { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(0,0,0,0.05); }
   @keyframes shimmer {
     0% { background-position: -1000px 0; }
     100% { background-position: 1000px 0; }
@@ -27,7 +27,7 @@ const styles = `
   }
 `;
 
-// --- SKELETON LOADER COMPONENT ---
+// --- SKELETON LOADER COMPONENT (Qaytarildi) ---
 const ChatListSkeleton = () => (
   <div className="space-y-4 p-4 animate-in fade-in duration-500">
     {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -42,7 +42,7 @@ const ChatListSkeleton = () => (
   </div>
 );
 
-// --- YORDAMCHI FUNKSIYALAR ---
+// --- YORDAMCHI FUNKSIYALAR (Qaytarildi) ---
 const formatTime = (timestamp) => {
   if (!timestamp || !timestamp.toDate) return "";
   return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -69,7 +69,7 @@ const ChatPage = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]); 
   const [newMessage, setNewMessage] = useState("");
-  const [loading, setLoading] = useState(true); // Loading State
+  const [loading, setLoading] = useState(true);
   
   const scrollRef = useRef();
 
@@ -130,7 +130,6 @@ const ChatPage = () => {
             detailedUsers.sort((a, b) => b.lastUpdated - a.lastUpdated);
             setUsers(detailedUsers);
             setFilteredUsers(detailedUsers);
-            // Biroz sun'iy kechikish qo'shamiz (skeleton chiroyli ko'rinishi uchun)
             setTimeout(() => setLoading(false), 800);
         });
 
@@ -221,7 +220,6 @@ const ChatPage = () => {
     } catch (err) { console.error(err); }
   };
 
-  // UI HELPERS
   const getAvatarGradient = (name) => {
     const gradients = [
       'from-blue-400 to-blue-600',
@@ -237,7 +235,7 @@ const ChatPage = () => {
   return (
     <>
       <style>{styles}</style>
-      <div className="flex h-screen bg-gray-50 overflow-hidden font-sans">
+      <div className="flex h-screen bg-gray-50 overflow-hidden font-sans fixed inset-0">
         
         {/* --- SIDEBAR --- */}
         <div className={`
@@ -246,7 +244,6 @@ const ChatPage = () => {
           ${selectedUser ? 'hidden md:flex' : 'flex'}
         `}>
           
-          {/* Sidebar Header */}
           <div className="px-4 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
              <h1 className="text-2xl font-bold text-gray-800 mb-4 px-1">Xabarlar</h1>
              <div className="relative group">
@@ -261,10 +258,9 @@ const ChatPage = () => {
              </div>
           </div>
 
-          {/* User List */}
           <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
              {loading ? (
-               <ChatListSkeleton /> // 🔥 SKELETON LOADER
+               <ChatListSkeleton />
              ) : filteredUsers.length === 0 ? (
                <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm animate-in fade-in zoom-in-95 duration-300">
                  <Search size={40} className="mb-2 opacity-20"/>
@@ -280,12 +276,10 @@ const ChatPage = () => {
                      ${selectedUser?.uid === user.uid ? 'bg-blue-600 shadow-md transform scale-[1.02]' : 'hover:bg-gray-100'}
                    `}
                  >
-                   {/* Avatar */}
                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-sm shrink-0 ${getAvatarGradient(user.name)}`}>
                       {user.name?.charAt(0)}
                    </div>
                    
-                   {/* Info */}
                    <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-0.5">
                          <h4 className={`font-semibold truncate text-base ${selectedUser?.uid === user.uid ? 'text-white' : 'text-gray-900'}`}>
@@ -322,11 +316,10 @@ const ChatPage = () => {
           
           {selectedUser ? (
             <>
-              {/* Chat Background Layer */}
               <div className="absolute inset-0 chat-background opacity-60 pointer-events-none"></div>
 
               {/* Chat Header */}
-              <div className="glass-header px-4 py-3 flex items-center justify-between shadow-sm z-20 border-b border-gray-200/50">
+              <div className="glass-header px-4 py-3 flex items-center justify-between shadow-sm z-20 border-b border-gray-200/50 shrink-0">
                  <div className="flex items-center gap-3 cursor-pointer" onClick={() => setSelectedUser(null)}>
                     <button className="md:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full">
                       <ArrowLeft size={20} />
@@ -353,7 +346,6 @@ const ChatPage = () => {
                    
                    return (
                      <div key={msg.id} className="w-full">
-                        {/* Date Divider */}
                         {showDate && (
                           <div className="flex justify-center my-6 sticky top-2 z-30 opacity-90">
                              <span className="bg-gray-200/80 backdrop-blur text-gray-600 text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm">
@@ -369,9 +361,8 @@ const ChatPage = () => {
                                 ? 'bg-blue-600 text-white rounded-[20px] rounded-tr-[4px]' 
                                 : 'bg-white text-gray-900 rounded-[20px] rounded-tl-[4px]'}
                            `}>
-                              <p className="break-words leading-relaxed whitespace-pre-wrap pr-6">{msg.text}</p>
+                              <p className="break-words leading-relaxed whitespace-pre-wrap pr-2">{msg.text}</p>
                               
-                              {/* Time & Status */}
                               <div className={`float-right flex items-center gap-1 ml-3 mt-1 text-[10px] font-medium select-none ${isMe ? 'text-blue-100' : 'text-gray-400'}`}>
                                  <span>{formatTime(msg.createdAt)}</span>
                                  {isMe && (
@@ -383,40 +374,44 @@ const ChatPage = () => {
                      </div>
                    );
                  })}
-                 <div ref={scrollRef} className="h-4"></div>
+                 <div ref={scrollRef} className="h-2"></div>
               </div>
 
-              {/* Input Area */}
-              <div className="p-3 z-20 bg-transparent">
-                 <form onSubmit={handleSendMessage} className="flex items-end gap-2 max-w-4xl mx-auto bg-white p-2 rounded-[24px] shadow-lg border border-gray-200/50 transition-all focus-within:shadow-xl focus-within:border-blue-200">
-                    <button type="button" className="p-3 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all">
-                        <Paperclip size={22}/>
+              {/* 🔥 INPUT AREA (FIXED) */}
+              <div className="p-2 z-20 bg-white border-t border-slate-100 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+                 <form onSubmit={handleSendMessage} className="flex items-end gap-2 bg-slate-50 p-1.5 rounded-[24px] border border-slate-200 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100 transition-all">
+                    
+                    <button type="button" className="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-full transition-all shrink-0">
+                        <Paperclip size={20}/>
                     </button>
                     
                     <input 
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
-                      className="flex-1 bg-transparent py-3 max-h-32 text-gray-800 outline-none placeholder:text-gray-400 font-medium"
+                      className="flex-1 bg-transparent py-3 max-h-32 text-gray-800 outline-none placeholder:text-gray-400 font-medium min-w-0"
                       placeholder="Xabar yozing..."
                     />
                     
-                    <button type="button" className="p-3 text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-full transition-all">
-                        <Smile size={22}/>
+                    <button type="button" className="p-2.5 text-gray-400 hover:text-yellow-500 hover:bg-white rounded-full transition-all shrink-0">
+                        <Smile size={20}/>
                     </button>
 
-                    {newMessage.trim() && (
-                      <button 
+                    {/* SEND BUTTON - ENDI HAR DOIM KO'RINADI VA CHEKKAGA CHIQIB KETMAYDI */}
+                    <button 
                         type="submit" 
-                        className="p-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 shadow-md hover:shadow-lg transform transition-all active:scale-95 animate-in zoom-in duration-200"
-                      >
-                        <Send size={20} className="ml-0.5"/>
-                      </button>
-                    )}
+                        disabled={!newMessage.trim()}
+                        className={`p-2.5 rounded-full shadow-md transition-all shrink-0 flex items-center justify-center
+                            ${newMessage.trim() 
+                                ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 animate-in zoom-in duration-200' 
+                                : 'bg-gray-200 text-gray-400 cursor-not-allowed'}
+                        `}
+                    >
+                        <Send size={18} className={newMessage.trim() ? "ml-0.5" : ""}/>
+                    </button>
                  </form>
               </div>
             </>
           ) : (
-            /* Empty State */
             <div className="flex-1 flex flex-col items-center justify-center z-10 select-none text-center p-6 bg-slate-50">
                <div className="bg-white p-8 rounded-full mb-6 shadow-sm border border-slate-100 animate-bounce-slow">
                   <div className="bg-blue-50 p-6 rounded-full">
