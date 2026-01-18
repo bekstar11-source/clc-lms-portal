@@ -6,10 +6,10 @@ import {
 } from 'firebase/firestore';
 import { 
   Send, Search, ArrowLeft, MoreVertical, 
-  Phone, Paperclip, Smile, CheckCheck, Check 
+  Phone, Paperclip, Smile, CheckCheck, Check, Users 
 } from 'lucide-react';
 
-// --- STYLES (Custom Scrollbar & Background) ---
+// --- STYLES ---
 const styles = `
   .custom-scrollbar::-webkit-scrollbar { width: 4px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -27,7 +27,7 @@ const styles = `
   }
 `;
 
-// --- SKELETON LOADER COMPONENT (Qaytarildi) ---
+// --- SKELETON LOADER ---
 const ChatListSkeleton = () => (
   <div className="space-y-4 p-4 animate-in fade-in duration-500">
     {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -42,7 +42,7 @@ const ChatListSkeleton = () => (
   </div>
 );
 
-// --- YORDAMCHI FUNKSIYALAR (Qaytarildi) ---
+// --- YORDAMCHI FUNKSIYALAR ---
 const formatTime = (timestamp) => {
   if (!timestamp || !timestamp.toDate) return "";
   return timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -89,22 +89,28 @@ const ChatPage = () => {
         
         setCurrentUser(userData);
 
+        // 🔥 O'ZGARISH: So'rovni soddalashtiramiz
         let qUsers;
         if (userData.role === 'student') {
+            // Student faqat Teacher va Adminni ko'radi
             qUsers = query(collection(db, "students"), where("role", "in", ["teacher", "admin"]));
         } else {
-            qUsers = query(collection(db, "students"), where("role", "==", "student"));
+            // Teacher va Admin HAMMA studentlarni ko'radi
+            // where("role", "==", "student") o'rniga oddiyroq yo'l tutamiz
+            // chunki ba'zi studentlarda role yozilmagan bo'lishi mumkin
+            qUsers = query(collection(db, "students")); 
         }
 
         const snapUsers = await getDocs(qUsers);
-        const contactList = snapUsers.docs.map(d => ({ uid: d.id, ...d.data() }));
-
-        if (contactList.length === 0) {
-            setUsers([]);
-            setFilteredUsers([]);
-            setLoading(false);
-            return;
-        }
+        
+        // O'zini va (Teacher bo'lsa) boshqa Teacherlarni ro'yxatdan chiqarib tashlaymiz
+        const contactList = snapUsers.docs
+            .map(d => ({ uid: d.id, ...d.data() }))
+            .filter(u => u.uid !== user.uid) // O'zini ko'rsatmasin
+            .filter(u => {
+                if (userData.role === 'teacher') return u.role !== 'teacher' && u.role !== 'admin'; // Teacher boshqa teacherni ko'rmasin (xohlasangiz o'chiring)
+                return true;
+            });
 
         const qChats = query(collection(db, "chats"), where("participants", "array-contains", user.uid));
         
@@ -120,17 +126,24 @@ const ChatPage = () => {
                 const chat = chatsData[chatId];
                 return {
                     ...contact,
-                    name: contact.name || contact.email || (contact.role === 'teacher' ? "O'qituvchi" : "Admin"),
+                    name: contact.name || contact.email || (contact.role === 'teacher' ? "O'qituvchi" : "Foydalanuvchi"),
                     lastMessage: chat?.lastMessage || "",
                     lastUpdated: chat?.lastUpdated?.seconds || 0,
                     unread: chat?.unreadCounts?.[user.uid] || 0
                 };
             });
 
-            detailedUsers.sort((a, b) => b.lastUpdated - a.lastUpdated);
+            // 🔥 SORTING: Agar chat bo'lsa tepaga, bo'lmasa Ism bo'yicha
+            detailedUsers.sort((a, b) => {
+                if (b.lastUpdated !== a.lastUpdated) {
+                    return b.lastUpdated - a.lastUpdated; // Yangi xabar tepada
+                }
+                return a.name.localeCompare(b.name); // Chat bo'lmasa alfavit bo'yicha
+            });
+
             setUsers(detailedUsers);
             setFilteredUsers(detailedUsers);
-            setTimeout(() => setLoading(false), 800);
+            setLoading(false);
         });
 
       } catch (err) {
@@ -245,7 +258,10 @@ const ChatPage = () => {
         `}>
           
           <div className="px-4 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-             <h1 className="text-2xl font-bold text-gray-800 mb-4 px-1">Xabarlar</h1>
+             <h1 className="text-2xl font-bold text-gray-800 mb-4 px-1 flex items-center gap-2">
+                Xabarlar 
+                <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{filteredUsers.length}</span>
+             </h1>
              <div className="relative group">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={20}/>
                <input 
@@ -263,7 +279,7 @@ const ChatPage = () => {
                <ChatListSkeleton />
              ) : filteredUsers.length === 0 ? (
                <div className="flex flex-col items-center justify-center h-40 text-gray-400 text-sm animate-in fade-in zoom-in-95 duration-300">
-                 <Search size={40} className="mb-2 opacity-20"/>
+                 <Users size={40} className="mb-2 opacity-20"/>
                  Foydalanuvchilar topilmadi
                </div>
              ) : (
@@ -377,7 +393,7 @@ const ChatPage = () => {
                  <div ref={scrollRef} className="h-2"></div>
               </div>
 
-              {/* 🔥 INPUT AREA (FIXED) */}
+              {/* Input Area (FIXED) */}
               <div className="p-2 z-20 bg-white border-t border-slate-100 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
                  <form onSubmit={handleSendMessage} className="flex items-end gap-2 bg-slate-50 p-1.5 rounded-[24px] border border-slate-200 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100 transition-all">
                     
@@ -396,7 +412,6 @@ const ChatPage = () => {
                         <Smile size={20}/>
                     </button>
 
-                    {/* SEND BUTTON - ENDI HAR DOIM KO'RINADI VA CHEKKAGA CHIQIB KETMAYDI */}
                     <button 
                         type="submit" 
                         disabled={!newMessage.trim()}
