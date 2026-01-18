@@ -60,14 +60,14 @@ const GameHub = () => {
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
   };
 
-  // Skeleton Loader
+  // Skeleton Loader (Ixchamlashtirilgan)
   const LeaderboardSkeleton = () => (
-    <div className="flex gap-3 overflow-hidden pb-2">
+    <div className="flex gap-3 overflow-hidden pb-2 pl-1">
       {[1,2,3,4].map(i => (
-        <div key={i} className="min-w-[120px] h-[120px] bg-slate-800/50 rounded-3xl animate-pulse border border-white/10 flex flex-col items-center justify-center p-3">
-           <div className="w-12 h-12 bg-white/10 rounded-full mb-3"></div>
-           <div className="w-16 h-3 bg-white/10 rounded mb-2"></div>
-           <div className="w-10 h-3 bg-white/10 rounded"></div>
+        <div key={i} className="min-w-[85px] h-[125px] bg-slate-800/50 rounded-2xl animate-pulse border border-white/10 flex flex-col items-center justify-center p-2">
+           <div className="w-10 h-10 bg-white/10 rounded-full mb-2"></div>
+           <div className="w-12 h-2 bg-white/10 rounded mb-1"></div>
+           <div className="w-8 h-2 bg-white/10 rounded"></div>
         </div>
       ))}
     </div>
@@ -76,20 +76,18 @@ const GameHub = () => {
   return (
     <div className="fixed inset-0 h-[100dvh] font-sans text-white overflow-hidden flex flex-col">
       
-      {/* 🔥 ORQA FON RASMI (YANGI) */}
+      {/* ORQA FON RASMI */}
       <div className="absolute inset-0 z-0">
-          {/* Rasm */}
           <div 
             className="absolute inset-0 bg-cover bg-center bg-no-repeat"
             style={{
-                backgroundImage: "url('https://github.com/user-attachments/assets/060d6d79-1665-4c0a-8ec5-07c7fdbfb6c6')" // Kosmik rasm
+                backgroundImage: "url('https://github.com/user-attachments/assets/060d6d79-1665-4c0a-8ec5-07c7fdbfb6c6')"
             }}
           ></div>
-          {/* Qoraytiruvchi parda */}
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
       </div>
 
-      {/* --- HEADER (Fixed & Safe) --- */}
+      {/* --- HEADER --- */}
       <div className="relative z-30 bg-black/20 backdrop-blur-md border-b border-white/10 pt-[calc(0.5rem+env(safe-area-inset-top))] p-4 shadow-sm shrink-0">
         <div className="flex justify-between items-center max-w-4xl mx-auto">
           <div className="flex items-center gap-3">
@@ -116,52 +114,54 @@ const GameHub = () => {
       {/* --- SCROLLABLE CONTENT --- */}
       <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-8 overscroll-contain relative z-10">
         
-        {/* --- HALL OF FAME (Horizontal Scroll) --- */}
+        {/* --- HALL OF FAME (IXCHAMLASHTIRILDI) --- */}
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex items-center justify-between mb-4 px-1">
+            <div className="flex items-center justify-between mb-3 px-1">
                 <div className="flex items-center gap-2">
-                    <Rocket className="text-orange-400 animate-pulse" size={20} />
-                    
+                    <Rocket className="text-orange-400 animate-pulse" size={18} />
+                    <h2 className="text-xs font-black uppercase tracking-widest text-white/80">Top Players</h2>
                 </div>
-                <span className="text-[10px] text-white/50 font-bold uppercase mr-1">Swipe &rarr;</span>
+                <span className="text-[9px] text-white/50 font-bold uppercase mr-1">Swipe &rarr;</span>
             </div>
             
             {loadingLeaders ? (
                 <LeaderboardSkeleton />
             ) : (
-                <div className="flex gap-4 overflow-x-auto pb-6 -mx-4 px-6 scrollbar-hide snap-x snap-mandatory">
+                <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide snap-x snap-mandatory pl-4">
                     {leaders.map((student, index) => {
                         const { title, color } = getTitle(index);
                         const isTop3 = index < 3;
                         return (
-                            <div key={student.id} className={`snap-center shrink-0 relative flex flex-col items-center justify-center gap-2 w-[120px] min-h-[170px] bg-white/5 backdrop-blur-md p-4 rounded-3xl border transition-all active:scale-95
-                               ${index === 0 ? 'border-yellow-400/50 bg-yellow-400/10 shadow-[0_0_20px_-5px_rgba(250,204,21,0.3)] scale-105' : 
-                                 index === 1 ? 'border-white/20' : 
-                                 index === 2 ? 'border-orange-400/50' : 
+                            // 🔥 O'zgartirilgan o'lchamlar: w-[85px], min-h-[125px], p-2
+                            <div key={student.id} className={`snap-center shrink-0 relative flex flex-col items-center justify-center gap-1.5 w-[90px] min-h-[135px] bg-white/5 backdrop-blur-md p-2 rounded-2xl border transition-all active:scale-95
+                               ${index === 0 ? 'border-yellow-400/50 bg-yellow-400/10 shadow-[0_0_15px_-5px_rgba(250,204,21,0.3)] scale-105 z-10' : 
+                                 index === 1 ? 'border-white/30' : 
+                                 index === 2 ? 'border-orange-400/40' : 
                                  'border-white/10 bg-black/20'}`}>
                                 
-                                {/* Rank Badge */}
-                                <div className={`absolute -top-3 -left-1 w-7 h-7 rounded-full flex items-center justify-center font-black text-xs border-2 border-black/50 shadow-md z-10
+                                {/* Rank Badge (Kichraytirildi) */}
+                                <div className={`absolute -top-2 -left-1 w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] border-2 border-black/50 shadow-md z-20
                                     ${index === 0 ? 'bg-yellow-400 text-black' : 
                                       index === 1 ? 'bg-slate-300 text-black' : 
                                       index === 2 ? 'bg-orange-400 text-black' : 'bg-white/20 text-white backdrop-blur'}`}>
                                     {index + 1}
                                 </div>
 
-                                {index === 0 && <Crown size={24} className="absolute -top-7 text-yellow-400 fill-yellow-400 animate-bounce" />}
+                                {index === 0 && <Crown size={16} className="absolute -top-5 text-yellow-400 fill-yellow-400 animate-bounce" />}
 
-                                <div className={`w-14 h-14 rounded-full overflow-hidden border-2 mb-1 bg-white/10 shadow-md
+                                {/* Avatar (Kichraytirildi) */}
+                                <div className={`w-10 h-10 rounded-full overflow-hidden border-2 mb-0.5 bg-white/10 shadow-md
                                     ${index === 0 ? 'border-yellow-400' : isTop3 ? 'border-white/50' : 'border-white/10'}`}>
                                     <img src={getAvatar(student.avatarSeed || student.name)} alt="av" className="w-full h-full object-cover" />
                                 </div>
 
-                                <div className="text-center w-full">
-                                    <p className="text-xs font-black uppercase truncate text-white">{student.name?.split(' ')[0]}</p>
-                                    <p className={`text-[8px] font-bold uppercase tracking-wide ${color} mt-0.5 opacity-90`}>{title}</p>
+                                <div className="text-center w-full px-1">
+                                    <p className="text-[10px] font-black uppercase truncate text-white leading-tight">{student.name?.split(' ')[0]}</p>
+                                    <p className={`text-[7px] font-bold uppercase tracking-wide ${color} mt-0.5 opacity-90 truncate`}>{title}</p>
                                 </div>
                                 
-                                <div className="bg-black/40 px-3 py-1.5 rounded-xl text-[11px] font-black text-white flex items-center gap-1.5 w-full justify-center border border-white/5 backdrop-blur-sm">
-                                    <Zap size={12} className="text-yellow-400 fill-yellow-400"/> {student.gameXp || 0}
+                                <div className="bg-black/40 px-2 py-1 rounded-lg text-[9px] font-black text-white flex items-center gap-1 w-full justify-center border border-white/5 backdrop-blur-sm mt-1">
+                                    <Zap size={10} className="text-yellow-400 fill-yellow-400"/> {student.gameXp || 0}
                                 </div>
                             </div>
                         );
@@ -173,8 +173,8 @@ const GameHub = () => {
         {/* --- O'YINLAR RO'YXATI --- */}
         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
           <div className="flex items-center gap-2 mb-2 px-1">
-              <Gamepad2 className="text-indigo-400" size={20} />
-              <h2 className="text-sm font-black uppercase tracking-widest text-white/80">O'yinlar</h2>
+              <Gamepad2 className="text-indigo-400" size={18} />
+              <h2 className="text-xs font-black uppercase tracking-widest text-white/80">O'yinlar</h2>
           </div>
 
           {/* 1. WORD SCRAMBLE */}

@@ -277,7 +277,7 @@ const TeacherDashboard = () => {
          <div 
            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
            style={{
-             backgroundImage: "url('https://github.com/user-attachments/assets/3e4e49aa-ca3f-414f-8790-48ccb56b825b')"
+             backgroundImage: "url('https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448')"
            }}
          ></div>
          {/* Oq parda (Overlay) */}

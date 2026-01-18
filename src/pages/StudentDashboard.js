@@ -338,7 +338,7 @@ const StudentDashboard = () => {
          <div 
            className="absolute inset-0 bg-cover bg-center bg-no-repeat"
            style={{
-             backgroundImage: "url('https://github.com/user-attachments/assets/f8dd4397-a60f-4385-a8e4-a187cabb969d')"
+             backgroundImage: "url('https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448')"
            }}
          ></div>
          <div className="absolute inset-0 bg-white/20 backdrop-blur-1xl"></div>
