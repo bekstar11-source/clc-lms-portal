@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Trophy, RefreshCw, ArrowRight, Home, 
-  BrainCircuit, Shuffle, Loader2, Eraser 
+  Trophy, ArrowRight, Home, 
+  BrainCircuit, Shuffle, Loader2, Eraser, Zap 
 } from 'lucide-react';
 import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -12,6 +12,7 @@ const WordGame = () => {
   const [loading, setLoading] = useState(true);
   const [gameData, setGameData] = useState(null);
   const [totalXp, setTotalXp] = useState(0);
+  const [sessionXp, setSessionXp] = useState(0);
 
   // Game State
   const [gameState, setGameState] = useState('menu');
@@ -24,15 +25,19 @@ const WordGame = () => {
   const [currentWordObj, setCurrentWordObj] = useState(null);
   const [scrambledLetters, setScrambledLetters] = useState([]);
   const [userGuess, setUserGuess] = useState([]);
-  const [feedback, setFeedback] = useState(null); // 'correct', 'wrong', null
+  const [feedback, setFeedback] = useState(null);
   const [streak, setStreak] = useState(0);
+  
+  // 🔥 ANIMATSIYA VA XP OZGARISHLARI
+  const [showXpAnim, setShowXpAnim] = useState(false);
+  const [xpChange, setXpChange] = useState(0); // Qancha XP qo'shildi yoki ayrildi
 
   // --- HAPTIC FEEDBACK ---
   const triggerHaptic = (type) => {
     if (navigator.vibrate) {
         if (type === 'tap') navigator.vibrate(10);
         if (type === 'success') navigator.vibrate([10, 50, 10]);
-        if (type === 'error') navigator.vibrate([50, 50, 50]);
+        if (type === 'error') navigator.vibrate([50, 100, 50]);
     }
   };
 
@@ -67,6 +72,7 @@ const WordGame = () => {
       triggerHaptic('tap');
       setLevel(lvlKey);
       setCategory(catKey);
+      setSessionXp(0);
       
       const originalWords = gameData.levels[lvlKey].categories[catKey].words;
       if (!originalWords || originalWords.length === 0) return alert("So'zlar yo'q!");
@@ -81,9 +87,10 @@ const WordGame = () => {
   const loadWord = (wordObj) => {
       setCurrentWordObj(wordObj);
       const letters = wordObj.word.split('').map((l, i) => ({ id: i, char: l, status: 'available' }));
-      setScrambledLetters(shuffleArray(letters)); // Re-use shuffle function
+      setScrambledLetters(shuffleArray(letters)); 
       setUserGuess([]);
       setFeedback(null);
+      setShowXpAnim(false);
   };
 
   const nextWord = () => {
@@ -106,8 +113,6 @@ const WordGame = () => {
   const handleGuessClick = (letter, index) => {
       if(feedback) return;
       triggerHaptic('tap');
-      // Remove clicked letter and all subsequent letters (optional UX choice, usually better to remove just one)
-      // Here we just remove the specific one to be safe
       const newGuess = [...userGuess];
       newGuess.splice(index, 1);
       setUserGuess(newGuess);
@@ -123,36 +128,52 @@ const WordGame = () => {
 
   const checkAnswer = async () => {
       const word = userGuess.map(l => l.char).join('');
+      const user = auth.currentUser;
+      const baseReward = gameData.levels[level].xpReward || 10;
+
       if(word === currentWordObj.word) {
+          // --- TOG'RI JAVOB ---
           triggerHaptic('success');
           setFeedback('correct');
           setStreak(s => s + 1);
           
-          const user = auth.currentUser;
-          const reward = gameData.levels[level].xpReward || 10;
-          if(user) await updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) });
+          setXpChange(baseReward); // +XP
+          setSessionXp(prev => prev + baseReward);
+          setShowXpAnim(true);
+
+          if(user) await updateDoc(doc(db, "students", user.uid), { gameXp: increment(baseReward) });
           
-          setTimeout(nextWord, 1200); 
+          setTimeout(nextWord, 1500); 
       } else {
+          // --- XATO JAVOB (XP AYRISH) ---
           triggerHaptic('error');
           setFeedback('wrong');
           setStreak(0);
+          
+          // Jarima: Mukofotning yarmi (butun son qilib olinadi)
+          const penalty = Math.floor(baseReward / 2); 
+          
+          setXpChange(-penalty); // -XP (Manfiy)
+          setSessionXp(prev => prev - penalty);
+          setShowXpAnim(true); // Animatsiyani ko'rsatish
+
+          // Bazadan ayirish
+          if(user) await updateDoc(doc(db, "students", user.uid), { gameXp: increment(-penalty) });
+
           setTimeout(() => {
               setFeedback(null);
               setUserGuess([]);
               setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
-          }, 800);
+              setShowXpAnim(false); // Animatsiyani o'chirish
+          }, 1200);
       }
   };
 
   const shuffleCurrent = () => {
       triggerHaptic('tap');
-      // Only shuffle available letters
       const available = scrambledLetters.filter(l => l.status === 'available');
       const shuffledAvailable = shuffleArray(available);
       
-      // Reconstruct array maintaining position of 'used' letters (though used are hidden)
-      // Actually, easier to just reset the 'available' ones in the list
       let availIndex = 0;
       const newLetters = scrambledLetters.map(l => {
           if(l.status === 'used') return l;
@@ -166,22 +187,22 @@ const WordGame = () => {
   // --- MENU UI ---
   if(gameState === 'menu') {
       return (
-        <div className="min-h-[100dvh] bg-slate-900 text-white font-sans overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-900 text-white font-sans overflow-y-auto overscroll-contain touch-manipulation">
            {/* Header */}
-           <div className="flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))]">
+           <div className="flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] sticky top-0 z-20 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800/50">
                <button onClick={()=>navigate('/games')} className="p-3 -m-3 bg-slate-800 rounded-full text-slate-400 active:scale-95 transition-transform"><Home size={22}/></button>
-               <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
+               <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700 shadow-lg shadow-indigo-500/10">
                    <Trophy className="text-yellow-400" size={16}/><span className="font-bold text-yellow-400 text-sm">{totalXp}</span>
                </div>
            </div>
            
-           <div className="px-4 pb-24">
-               <div className="text-center mb-8 mt-4">
-                   <div className="w-20 h-20 bg-indigo-500/10 rounded-[2rem] flex items-center justify-center mx-auto mb-4 border border-indigo-500/20 shadow-[0_0_30px_-10px_rgba(99,102,241,0.5)]">
+           <div className="px-4 pb-24 pt-4">
+               <div className="text-center mb-8">
+                   <div className="w-20 h-20 bg-indigo-500/10 rounded-[2rem] flex items-center justify-center mx-auto mb-4 border border-indigo-500/20 shadow-[0_0_30px_-10px_rgba(99,102,241,0.5)] animate-pulse-slow">
                        <BrainCircuit size={40} className="text-indigo-400"/>
                    </div>
                    <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 uppercase tracking-tighter">Word Scramble</h1>
-                   <p className="text-slate-500 text-sm mt-2">So'zlarni topib hotirani charxlang</p>
+                   <p className="text-slate-500 text-sm mt-2">So'zlarni topib xotirani charxlang</p>
                </div>
 
                <div className="space-y-6">
@@ -193,9 +214,10 @@ const WordGame = () => {
                            </div>
                            <div className="grid grid-cols-2 gap-3">
                                {gameData.levels[lvlKey].categories && Object.keys(gameData.levels[lvlKey].categories).map(catKey => (
-                                   <button key={catKey} onClick={()=>startGame(lvlKey, catKey)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700/50 relative overflow-hidden group active:scale-[0.98] transition-all shadow-lg text-left">
-                                       <div className="font-bold text-white mb-1 truncate text-sm">{gameData.levels[lvlKey].categories[catKey].title}</div>
-                                       <div className="text-[10px] text-slate-500 group-hover:text-indigo-400 flex items-center gap-1 font-bold">Boshlash <ArrowRight size={10}/></div>
+                                   <button key={catKey} onClick={()=>startGame(lvlKey, catKey)} className="bg-slate-800 p-4 rounded-2xl border border-slate-700/50 relative overflow-hidden group active:scale-[0.98] transition-all shadow-lg text-left hover:border-indigo-500/30">
+                                       <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/0 to-indigo-500/0 group-hover:to-indigo-500/10 transition-all"></div>
+                                       <div className="font-bold text-white mb-1 truncate text-sm relative z-10">{gameData.levels[lvlKey].categories[catKey].title}</div>
+                                       <div className="text-[10px] text-slate-500 group-hover:text-indigo-400 flex items-center gap-1 font-bold relative z-10">Boshlash <ArrowRight size={10}/></div>
                                    </button>
                                ))}
                            </div>
@@ -208,28 +230,45 @@ const WordGame = () => {
   }
 
   // --- PLAYING UI ---
-  // Responsive Box Size Logic
   const wordLength = currentWordObj?.word.length || 0;
   const isLongWord = wordLength > 7;
 
   return (
-      <div className="flex flex-col h-[100dvh] bg-slate-900 text-white font-sans overflow-hidden">
+      <div className="fixed inset-0 flex flex-col bg-slate-900 text-white font-sans overflow-hidden overscroll-contain">
           
           {/* Header */}
-          <div className="flex-none flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] bg-slate-900 z-10">
+          <div className="flex-none flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] bg-slate-900 z-10 border-b border-slate-800">
               <button onClick={()=>setGameState('menu')} className="p-2 -ml-2 bg-slate-800/50 rounded-xl text-slate-400 active:text-white transition-colors"><Home size={20}/></button>
-              <div className="flex items-center gap-3">
+              
+              {/* Session XP Display */}
+              <div className="flex items-center gap-4">
+                 <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border transition-colors ${sessionXp < 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-indigo-500/10 border-indigo-500/20'}`}>
+                    <Zap size={14} className={sessionXp < 0 ? "text-red-400 fill-red-400" : "text-yellow-400 fill-yellow-400"} />
+                    <span className={`text-xs font-black ${sessionXp < 0 ? 'text-red-300' : 'text-indigo-300'}`}>{sessionXp > 0 ? '+' : ''}{sessionXp}</span>
+                 </div>
+                 
                  <div className="text-[10px] font-bold text-slate-500 bg-slate-800 px-2 py-1 rounded-lg">
                     {currentIndex + 1} / {wordQueue.length}
-                 </div>
-                 <div className={`flex items-center gap-1 font-black text-lg ${streak > 1 ? 'text-orange-400 animate-pulse' : 'text-slate-600'}`}>
-                    {streak}<span className="text-xs">🔥</span>
                  </div>
               </div>
           </div>
 
-          {/* Main Content (Scrollable) */}
-          <div className="flex-1 overflow-y-auto flex flex-col items-center p-4 pb-4">
+          {/* 🔥 XP Animation Overlay */}
+          {showXpAnim && (
+              <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+                  <div className="animate-float-up flex flex-col items-center">
+                      <span className={`text-4xl font-black drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] ${xpChange > 0 ? 'text-yellow-400' : 'text-red-500'}`}>
+                          {xpChange > 0 ? '+' : ''}{xpChange} XP
+                      </span>
+                      <span className={`text-sm font-bold text-white mt-2 px-3 py-1 rounded-full backdrop-blur-sm ${xpChange > 0 ? 'bg-emerald-500/80' : 'bg-red-500/80'}`}>
+                          {xpChange > 0 ? 'Correct!' : 'Oops!'}
+                      </span>
+                  </div>
+              </div>
+          )}
+
+          {/* Main Content */}
+          <div className="flex-1 overflow-y-auto flex flex-col items-center p-4 pb-4 overscroll-contain">
               
               <div className="mt-4 mb-8 text-center w-full animate-in zoom-in-50 duration-500">
                   <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-2 py-1 rounded mb-3 inline-block">Translate</span>
@@ -237,7 +276,6 @@ const WordGame = () => {
               </div>
 
               {/* Input Slots */}
-              {/* Uses flex-wrap to handle long words gracefully */}
               <div className={`flex flex-wrap justify-center gap-2 mb-10 w-full transition-all duration-200 ${feedback === 'wrong' ? 'animate-shake' : ''}`}>
                   {Array.from({length: wordLength}).map((_, i) => {
                       const letter = userGuess[i];
@@ -260,7 +298,7 @@ const WordGame = () => {
                   })}
               </div>
 
-              {/* Keyboard / Available Letters */}
+              {/* Keyboard */}
               <div className="w-full max-w-sm">
                   <div className="flex flex-wrap justify-center gap-2">
                       {scrambledLetters.map((l) => (
@@ -302,7 +340,6 @@ const WordGame = () => {
               </div>
           </div>
           
-          {/* Shake Animation Style */}
           <style>{`
             @keyframes shake {
               0%, 100% { transform: translateX(0); }
@@ -311,6 +348,15 @@ const WordGame = () => {
             }
             .animate-shake {
               animation: shake 0.4s ease-in-out;
+            }
+            @keyframes float-up {
+                0% { transform: translateY(0) scale(0.8); opacity: 0; }
+                20% { transform: translateY(-20px) scale(1.1); opacity: 1; }
+                80% { transform: translateY(-50px) scale(1); opacity: 1; }
+                100% { transform: translateY(-70px) scale(0.9); opacity: 0; }
+            }
+            .animate-float-up {
+                animation: float-up 1.2s ease-out forwards;
             }
           `}</style>
       </div>

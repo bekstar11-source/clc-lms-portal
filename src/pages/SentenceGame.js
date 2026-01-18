@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Home, CheckCircle2, XCircle, RotateCcw, 
-  AlignLeft, ArrowRight, Loader2, Trophy 
+  AlignLeft, ArrowRight, Loader2, Trophy, Zap 
 } from 'lucide-react';
 import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '../firebase'; // Make sure this path is correct for your project
+import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 
 const SentenceGame = () => {
@@ -12,6 +12,7 @@ const SentenceGame = () => {
   const [loading, setLoading] = useState(true);
   const [gameData, setGameData] = useState(null);
   const [totalXp, setTotalXp] = useState(0);
+  const [sessionXp, setSessionXp] = useState(0);
 
   const [gameState, setGameState] = useState('level_select');
   const [selectedLevel, setSelectedLevel] = useState(null);
@@ -23,13 +24,17 @@ const SentenceGame = () => {
   const [selectedParts, setSelectedParts] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [streak, setStreak] = useState(0);
+  
+  // 🔥 ANIMATSIYA UCHUN
+  const [showXpAnim, setShowXpAnim] = useState(false);
+  const [xpChange, setXpChange] = useState(0);
 
   // --- HAPTIC FEEDBACK HELPER ---
   const triggerHaptic = (type) => {
     if (navigator.vibrate) {
-      if (type === 'success') navigator.vibrate([10, 50, 10]); // Success double tap
-      if (type === 'error') navigator.vibrate([50, 100, 50]);  // Heavy error vibration
-      if (type === 'tap') navigator.vibrate(10);               // Light tap
+      if (type === 'success') navigator.vibrate([10, 50, 10]); 
+      if (type === 'error') navigator.vibrate([50, 100, 50]);  
+      if (type === 'tap') navigator.vibrate(10);               
     }
   };
 
@@ -48,7 +53,6 @@ const SentenceGame = () => {
     initGame();
   }, []);
 
-  // Shuffle Function
   const shuffleArray = (array) => {
     let arr = [...array];
     for (let i = arr.length - 1; i > 0; i--) {
@@ -66,6 +70,7 @@ const SentenceGame = () => {
   const handleLevelSelect = (key) => { 
       triggerHaptic('tap');
       setSelectedLevel(key);
+      setSessionXp(0);
       
       const sentences = gameData.levels[key].sentences;
       if (!sentences || sentences.length === 0) return alert("Gaplar yo'q");
@@ -83,6 +88,7 @@ const SentenceGame = () => {
       setAvailableParts(shuffleParts(sentenceObj.parts)); 
       setSelectedParts([]); 
       setFeedback(null);
+      setShowXpAnim(false);
   };
 
   const handlePartClick = (p) => { 
@@ -103,18 +109,33 @@ const SentenceGame = () => {
       const currentSentence = shuffledSentences[currentSentenceIndex];
       const correct = currentSentence.parts.join(' ');
       const userS = selectedParts.map(p=>p.text).join(' ');
+      const user = auth.currentUser;
+      const baseReward = gameData.levels[selectedLevel].xpReward || 15;
       
       if(userS === correct) {
+          // --- TOG'RI ---
           triggerHaptic('success');
           setFeedback('correct'); 
           setStreak(s=>s+1);
-          const user = auth.currentUser;
-          const reward = gameData.levels[selectedLevel].xpReward || 15;
-          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) });
+          
+          setXpChange(baseReward);
+          setSessionXp(prev => prev + baseReward);
+          setShowXpAnim(true);
+
+          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(baseReward) });
       } else { 
+          // --- XATO ---
           triggerHaptic('error');
           setFeedback('wrong'); 
           setStreak(0); 
+
+          const penalty = Math.floor(baseReward / 2);
+          
+          setXpChange(-penalty); // Minus XP
+          setSessionXp(prev => prev - penalty);
+          setShowXpAnim(true);
+
+          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(-penalty) });
       }
   };
 
@@ -134,6 +155,7 @@ const SentenceGame = () => {
       setFeedback(null); 
       setSelectedParts([]); 
       setAvailableParts(prev=>prev.map(p=>({...p,status:'available'}))); 
+      setShowXpAnim(false);
   };
 
   if(loading) return <div className="h-[100dvh] flex items-center justify-center bg-slate-900"><Loader2 className="animate-spin text-white"/></div>;
@@ -141,11 +163,13 @@ const SentenceGame = () => {
   // --- MENU (LEVEL SELECT) ---
   if(gameState === 'level_select') {
       return (
-          <div className="min-h-[100dvh] bg-slate-900 text-white font-sans overflow-y-auto overscroll-none">
-              <div className="p-4 pb-safe-bottom pt-[calc(1rem+env(safe-area-inset-top))]">
+          <div className="fixed inset-0 bg-slate-900 text-white font-sans overflow-y-auto overscroll-contain touch-manipulation">
+              <div className="p-4 pb-24 pt-[calc(1rem+env(safe-area-inset-top))]">
                 <div className="flex justify-between items-center mb-8">
                     <button onClick={()=>navigate('/games')} className="p-3 -m-3 bg-slate-800 rounded-full active:scale-95 transition-transform"><Home size={20}/></button>
-                    <div className="text-yellow-400 font-bold text-sm bg-slate-800 px-3 py-1 rounded-full border border-slate-700">{totalXp} XP</div>
+                    <div className="flex items-center gap-2 text-yellow-400 font-bold text-sm bg-slate-800 px-3 py-1 rounded-full border border-slate-700">
+                        <Trophy size={16}/> {totalXp}
+                    </div>
                 </div>
                 <h1 className="text-3xl font-black text-center mb-2 bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-500">SENTENCE MASTER</h1>
                 <p className="text-center text-slate-500 text-sm mb-8">Grammatikani mustahkamlang</p>
@@ -173,12 +197,12 @@ const SentenceGame = () => {
   // --- RESULT ---
   if(gameState === 'result') {
       return (
-          <div className="h-[100dvh] flex flex-col items-center justify-center bg-slate-900 p-6 text-center text-white pb-safe-bottom">
+          <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-900 p-6 text-center text-white">
               <div className="w-24 h-24 bg-yellow-400/20 rounded-full flex items-center justify-center mb-6 animate-bounce">
                  <Trophy className="w-12 h-12 text-yellow-400" />
               </div>
               <h2 className="text-3xl font-black mb-2">Level Complete!</h2>
-              <p className="text-slate-400 mb-8">Barcha gaplar muvaffaqiyatli tuzildi.</p>
+              <div className="text-emerald-400 font-black text-xl mb-6">+{sessionXp} XP Earned</div>
               <button onClick={()=>setGameState('level_select')} className="w-full max-w-xs py-4 bg-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform"><Home size={20}/> Menu</button>
           </div>
       )
@@ -188,21 +212,42 @@ const SentenceGame = () => {
   const currentSentence = shuffledSentences[currentSentenceIndex];
 
   return (
-      <div className="flex flex-col h-[100dvh] bg-slate-900 text-white font-sans overflow-hidden">
+      <div className="fixed inset-0 flex flex-col bg-slate-900 text-white font-sans overflow-hidden overscroll-contain">
           
           {/* HEADER (Fixed & Safe) */}
           <div className="flex-none p-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center bg-slate-800 z-10 shadow-md">
               <button onClick={()=>setGameState('level_select')} className="text-slate-400 p-2 -m-2 active:text-white"><Home size={22}/></button>
-              <div className="flex flex-col items-center w-1/2">
+              
+              {/* Progress Bar */}
+              <div className="flex flex-col items-center w-1/3">
                   <div className="w-full h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden">
                       <div className="h-full bg-emerald-500 transition-all duration-500 ease-out" style={{width: `${((currentSentenceIndex)/shuffledSentences.length)*100}%`}}></div>
                   </div>
               </div>
-              <div className="font-bold text-yellow-400 text-sm">{totalXp}</div>
+
+              {/* Session XP */}
+              <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border transition-colors ${sessionXp < 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-indigo-500/10 border-indigo-500/20'}`}>
+                  <Zap size={14} className={sessionXp < 0 ? "text-red-400 fill-red-400" : "text-yellow-400 fill-yellow-400"} />
+                  <span className={`text-xs font-black ${sessionXp < 0 ? 'text-red-300' : 'text-indigo-300'}`}>{sessionXp > 0 ? '+' : ''}{sessionXp}</span>
+              </div>
           </div>
 
+          {/* 🔥 XP Animation Overlay */}
+          {showXpAnim && (
+              <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+                  <div className="animate-float-up flex flex-col items-center">
+                      <span className={`text-4xl font-black drop-shadow-[0_0_15px_rgba(0,0,0,0.5)] ${xpChange > 0 ? 'text-yellow-400' : 'text-red-500'}`}>
+                          {xpChange > 0 ? '+' : ''}{xpChange} XP
+                      </span>
+                      <span className={`text-sm font-bold text-white mt-2 px-3 py-1 rounded-full backdrop-blur-sm ${xpChange > 0 ? 'bg-emerald-500/80' : 'bg-red-500/80'}`}>
+                          {xpChange > 0 ? 'Correct!' : 'Oops!'}
+                      </span>
+                  </div>
+              </div>
+          )}
+
           {/* MIDDLE (Scrollable) */}
-          <div className="flex-1 overflow-y-auto overscroll-none p-4 pb-32 max-w-md mx-auto w-full scroll-smooth">
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4 pb-32 max-w-md mx-auto w-full scroll-smooth">
               <div className="mb-6 mt-2 text-center">
                   <span className="text-[10px] font-black uppercase text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded">Translate</span>
                   <h2 className="text-xl font-bold mt-2 leading-relaxed select-none">{currentSentence?.translation}</h2>
@@ -253,6 +298,18 @@ const SentenceGame = () => {
                   )}
               </div>
           </div>
+
+          <style>{`
+            @keyframes float-up {
+                0% { transform: translateY(0) scale(0.8); opacity: 0; }
+                20% { transform: translateY(-20px) scale(1.1); opacity: 1; }
+                80% { transform: translateY(-50px) scale(1); opacity: 1; }
+                100% { transform: translateY(-70px) scale(0.9); opacity: 0; }
+            }
+            .animate-float-up {
+                animation: float-up 1.2s ease-out forwards;
+            }
+          `}</style>
       </div>
   );
 };

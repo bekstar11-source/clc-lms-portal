@@ -9,13 +9,11 @@ import {
   ShieldCheck, Search, Loader2, LogOut, ChevronDown, 
   LayoutGrid, Plus, UserPlus, Users, Filter, CheckCircle, Trash2,
   BarChart3, Megaphone, Key, Pencil, X, Target, Sparkles, Layers, GraduationCap, Briefcase,
-  Gamepad2, MessageCircle // 👈 YANGI: Chat ikonkasi qo'shildi
+  Gamepad2, MessageCircle, UserCheck // UserCheck ikonkasi qo'shildi
 } from 'lucide-react';
 
-// 🔥 SystemHealth komponenti
 import SystemHealth from '../components/SystemHealth'; 
 
-// Yordamchi komponent: Gradient Matn
 const GradientText = ({ children, from, to }) => (
   <span className={`bg-clip-text text-transparent bg-gradient-to-r ${from} ${to}`}>
     {children}
@@ -134,7 +132,7 @@ const AdminPanel = () => {
 
   const createGroup = async (e) => {
     e.preventDefault(); if(!newGroupName.trim()) return;
-    try { const docRef = await addDoc(collection(db, "groups"), { name: newGroupName, teacherId: null, createdAt: serverTimestamp() }); setGroups([...groups, { id: docRef.id, name: newGroupName, teacherId: null }]); setNewGroupName(''); } catch(e) { alert(e.message); }
+    try { const docRef = await addDoc(collection(db, "groups"), { name: newGroupName, teacherId: null, assistantTeacherId: null, createdAt: serverTimestamp() }); setGroups([...groups, { id: docRef.id, name: newGroupName, teacherId: null, assistantTeacherId: null }]); setNewGroupName(''); } catch(e) { alert(e.message); }
   };
   const deleteGroup = async (id) => { if(window.confirm("O'chirilsinmi?")) { await deleteDoc(doc(db, "groups", id)); setGroups(prev=>prev.filter(g=>g.id!==id)); }};
   
@@ -150,6 +148,17 @@ const AdminPanel = () => {
   const assignTeacherToGroup = async (gid, tid) => {
       setProcessingId(gid); try { await updateDoc(doc(db, "groups", gid), { teacherId: tid }); setGroups(p=>p.map(g=>g.id===gid?{...g, teacherId: tid}:g)); } catch(e){alert(e.message)} finally{setProcessingId(null)}
   };
+
+  // 🔥 NEW: ASSIGN ASSISTANT
+  const assignAssistantToGroup = async (gid, tid) => {
+      setProcessingId(gid); 
+      try { 
+          const assistantId = tid ? tid : null;
+          await updateDoc(doc(db, "groups", gid), { assistantTeacherId: assistantId }); 
+          setGroups(p=>p.map(g=>g.id===gid?{...g, assistantTeacherId: assistantId}:g)); 
+      } catch(e){alert(e.message)} finally{setProcessingId(null)}
+  };
+
   const postAnnouncement = async (e) => {
       e.preventDefault(); if(!announcementText.trim()) return;
       if((targetType === 'group' || targetType === 'specific_teacher') && !selectedTargetId) { alert("Targetni tanlang."); return; }
@@ -194,7 +203,7 @@ const AdminPanel = () => {
             </div>
           </div>
 
-          {/* 🔥 NAVIGATSIYA TUGMALARI */}
+          {/* NAVIGATSIYA TUGMALARI */}
           <div className="flex gap-2">
              <button 
                 onClick={() => navigate('/chat')} 
@@ -270,9 +279,7 @@ const AdminPanel = () => {
         {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
             <div className="p-8">
-                {/* Tizim tekshiruvchisi */}
                 <SystemHealth />
-
                 <div className="p-16 text-center flex flex-col items-center justify-center bg-gradient-to-b from-white/0 to-slate-50/50 rounded-[3rem] mt-4">
                     <div className="bg-indigo-50 p-6 rounded-full mb-6 shadow-inner-lg"><BarChart3 className="text-indigo-400" size={80}/></div>
                     <h3 className="text-3xl font-black text-slate-800 mb-2">Xush kelibsiz, <GradientText from="from-indigo-600" to="to-purple-500">Admin!</GradientText></h3>
@@ -341,7 +348,7 @@ const AdminPanel = () => {
            </div>
         )}
 
-        {/* GROUPS TAB */}
+        {/* GROUPS TAB (UPDATED FOR ASSISTANT) */}
         {activeTab === 'groups' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
               <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-8 rounded-[2.5rem] shadow-lg shadow-emerald-100/50 border border-emerald-100 h-fit relative overflow-hidden">
@@ -364,14 +371,30 @@ const AdminPanel = () => {
                               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-white shadow-sm ${hasTeacher ? 'bg-gradient-to-br from-emerald-400 to-teal-500' : 'bg-gradient-to-br from-amber-400 to-orange-400'}`}><Layers size={24} /></div>
                               <div><h4 className="font-black text-slate-800 text-lg">{g.name}</h4><p className={`text-[10px] font-bold uppercase tracking-widest ${hasTeacher ? 'text-emerald-500' : 'text-amber-500'}`}>{hasTeacher ? 'Faol Guruh' : 'O\'qituvchi Biriktirilmagan'}</p></div>
                           </div>
-                          <div className="flex items-center gap-3 w-full md:w-auto">
+                          
+                          <div className="flex flex-col gap-2 w-full md:w-auto">
+                              {/* 1. Main Teacher */}
                               <div className="relative w-full md:w-64">
-                                  <select className={`w-full appearance-none pl-5 pr-10 py-3.5 rounded-2xl text-xs font-black border outline-none cursor-pointer transition-all shadow-sm ${hasTeacher ? 'bg-slate-50 text-slate-700' : 'bg-amber-100 text-amber-700'}`} value={g.teacherId||""} onChange={(e)=>assignTeacherToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
-                                      <option value="">-- O'qituvchi yo'q --</option>
+                                  <select className={`w-full appearance-none pl-10 pr-10 py-3 rounded-xl text-xs font-black border outline-none cursor-pointer transition-all shadow-sm ${hasTeacher ? 'bg-slate-50 text-slate-700' : 'bg-amber-100 text-amber-700'}`} value={g.teacherId||""} onChange={(e)=>assignTeacherToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
+                                      <option value="">-- Asosiy O'qituvchi --</option>
                                       {teachers.map(t=><option key={t.id} value={t.id} className="text-slate-800 font-bold">{t.name}</option>)}
                                   </select>
-                                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" size={16}/>
+                                  <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14}/>
+                                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" size={14}/>
                               </div>
+
+                              {/* 2. Assistant Teacher */}
+                              <div className="relative w-full md:w-64">
+                                  <select className="w-full appearance-none pl-10 pr-10 py-3 rounded-xl text-xs font-black border border-dashed border-slate-300 outline-none cursor-pointer transition-all shadow-sm bg-white text-slate-500 hover:border-indigo-300" value={g.assistantTeacherId||""} onChange={(e)=>assignAssistantToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
+                                      <option value="">-- Yordamchi (Ixtiyoriy) --</option>
+                                      {teachers.filter(t => t.id !== g.teacherId).map(t=><option key={t.id} value={t.id} className="text-slate-800 font-bold">{t.name}</option>)}
+                                  </select>
+                                  <UserCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
+                                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-300" size={14}/>
+                              </div>
+                          </div>
+
+                          <div className="ml-2">
                               <button onClick={()=>deleteGroup(g.id)} className="p-3.5 bg-slate-100/50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 rounded-2xl transition-all shadow-sm"><Trash2 size={18}/></button>
                           </div>
                       </div>

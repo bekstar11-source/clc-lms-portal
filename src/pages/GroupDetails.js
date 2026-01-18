@@ -144,14 +144,10 @@ const GroupDetails = () => {
 
         // Har bir active dars uchun bahoni tekshiramiz
         activeLessons.forEach(lesson => {
-            // Shu darsga tegishli har qanday bahoni topamiz (birinchi uchraganini)
-            // Agar tasklar ko'p bo'lsa, o'rtachasini olish mumkin, lekin hozircha oddiy yondashuv:
             const grade = studentGrades.find(g => g.lessonId === lesson.id);
-            
             if (grade) {
                 totalScore += Number(grade.score) || 0;
             } else {
-                // Baho yo'q = 0 ball
                 totalScore += 0;
             }
         });

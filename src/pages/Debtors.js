@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Loader2, 
   AlertTriangle, BookOpen, Calendar, RefreshCw,
-  AlertOctagon, XCircle, ArrowRight
+  AlertOctagon, XCircle, ArrowRight, Search, Timer
 } from 'lucide-react';
 
 // --- HELPER: COUNTDOWN TIMER ---
@@ -31,13 +31,19 @@ const CountdownTimer = ({ deadline }) => {
     const timer = setInterval(calculateTime, 60000); 
     return () => clearInterval(timer);
   }, [deadline]);
-  return <span className="font-mono font-bold text-[9px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded ml-1 whitespace-nowrap tracking-tight">{timeLeft}</span>;
+  return (
+    <span className="flex items-center gap-1 font-mono font-bold text-[9px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded ml-1 whitespace-nowrap tracking-tight">
+       <Timer size={10} /> {timeLeft}
+    </span>
+  );
 };
 
 const Debtors = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState([]);
+  const [filteredData, setFilteredData] = useState([]); 
+  const [searchQuery, setSearchQuery] = useState(''); 
   const [expandedGroup, setExpandedGroup] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -47,12 +53,13 @@ const Debtors = () => {
       const user = auth.currentUser;
       if (!user) return;
 
-      // 1. CACHE CHECK
       if (!forceRefresh) {
         const cachedData = localStorage.getItem('debtorsCachev2'); 
         const cachedTime = localStorage.getItem('debtorsTimev2');
         if (cachedData && cachedTime && (new Date().getTime() - parseInt(cachedTime) < 10 * 60 * 1000)) {
-            setReportData(JSON.parse(cachedData));
+            const parsed = JSON.parse(cachedData);
+            setReportData(parsed);
+            setFilteredData(parsed);
             setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
             setLoading(false);
             return;
@@ -60,9 +67,29 @@ const Debtors = () => {
       }
 
       try {
-        const qGroups = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-        const groupSnap = await getDocs(qGroups);
-        const groups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // 🔥🔥🔥 MUHIM O'ZGARISH: ASSISTANT GURUHLARINI HAM OLISH 🔥🔥🔥
+        
+        // 1. Asosiy o'qituvchi bo'lgan guruhlar
+        const qMainGroups = query(collection(db, "groups"), where("teacherId", "==", user.uid));
+        
+        // 2. Yordamchi o'qituvchi bo'lgan guruhlar
+        const qAssistGroups = query(collection(db, "groups"), where("assistantTeacherId", "==", user.uid));
+        
+        const [mainSnap, assistSnap] = await Promise.all([
+            getDocs(qMainGroups),
+            getDocs(qAssistGroups)
+        ]);
+
+        // Ikkala natijani birlashtiramiz
+        const mainGroups = mainSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const assistGroups = assistSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        // Dublikatlarni oldini olish (ID bo'yicha filter)
+        const allRawGroups = [...mainGroups, ...assistGroups];
+        const groups = allRawGroups.filter((group, index, self) =>
+            index === self.findIndex((t) => t.id === group.id)
+        );
+
         const today = new Date().toISOString().split('T')[0];
 
         const groupsPromises = groups.map(async (group) => {
@@ -73,7 +100,7 @@ const Debtors = () => {
             ]);
 
             const students = studSnap.docs.map(d => ({ id: d.id, name: d.data().name }));
-            const pastLessons = lessonSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.date <= today);
+            const pastLessons = lessonSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.date <= today && !l.isDelayed); 
             const grades = gradeSnap.docs.map(d => d.data());
 
             const groupDebtors = [];
@@ -121,7 +148,7 @@ const Debtors = () => {
                             date: lesson.date,
                             type: hasMissing && !hasLow ? 'missing' : hasLow && !hasMissing ? 'low' : 'mixed',
                             tasks: failedTasks, 
-                            deadline: lessonDeadline
+                            deadline: lessonDeadline 
                         });
                     }
                 });
@@ -139,6 +166,7 @@ const Debtors = () => {
         const finalData = results.filter(g => g !== null);
 
         setReportData(finalData);
+        setFilteredData(finalData);
         localStorage.setItem('debtorsCachev2', JSON.stringify(finalData));
         localStorage.setItem('debtorsTimev2', new Date().getTime().toString());
         setLastUpdated(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
@@ -148,6 +176,28 @@ const Debtors = () => {
 
     loadDebtors();
   }, []);
+
+  useEffect(() => {
+      if (!searchQuery.trim()) {
+          setFilteredData(reportData);
+          setExpandedGroup(null); 
+      } else {
+          const lowerQ = searchQuery.toLowerCase();
+          const filtered = reportData.map(group => {
+              if (group.groupName.toLowerCase().includes(lowerQ)) return group;
+              
+              const matchingDebtors = group.debtors.filter(d => d.studentName.toLowerCase().includes(lowerQ));
+              
+              if (matchingDebtors.length > 0) {
+                  return { ...group, debtors: matchingDebtors };
+              }
+              return null;
+          }).filter(g => g !== null);
+          
+          setFilteredData(filtered);
+          if (filtered.length > 0) setExpandedGroup(filtered[0].groupId);
+      }
+  }, [searchQuery, reportData]);
 
   const refreshData = () => {
     localStorage.removeItem('debtorsCachev2'); 
@@ -160,7 +210,6 @@ const Debtors = () => {
   };
 
   const navigateToStudent = (groupId, studentId, lessonId) => {
-      // Navigate to Group Details, open Grading Modal for specific student & Highlight the lesson
       navigate(`/group/${groupId}`, { state: { openStudentId: studentId, highlightLessonId: lessonId } });
   };
 
@@ -168,23 +217,38 @@ const Debtors = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-10 pb-28 md:pb-24 font-sans touch-manipulation">
-       {/* HEADER */}
-       <div className="mb-6 flex justify-between items-end">
-         <div>
-            <div className="flex items-center gap-2 mb-1">
-                <div className="bg-rose-100 p-2 rounded-xl text-rose-600"><AlertTriangle size={20} /></div>
-                <h1 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">Debtors List</h1>
+       
+       {/* HEADER & SEARCH */}
+       <div className="mb-6 space-y-4">
+         <div className="flex justify-between items-end">
+            <div>
+                <div className="flex items-center gap-2 mb-1">
+                    <div className="bg-rose-100 p-2 rounded-xl text-rose-600"><AlertTriangle size={20} /></div>
+                    <h1 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">Debtors List</h1>
+                </div>
+                <p className="text-slate-400 font-bold text-[10px] flex items-center gap-1">
+                    {lastUpdated ? `Updated: ${lastUpdated}` : 'Syncing...'}
+                </p>
             </div>
-            <p className="text-slate-400 font-bold text-[10px] flex items-center gap-1">
-                {lastUpdated ? `Updated: ${lastUpdated}` : 'Syncing...'}
-            </p>
+            <button onClick={refreshData} className="p-3 bg-white text-indigo-600 rounded-xl shadow-sm border border-indigo-100 active:scale-95 transition-transform"><RefreshCw size={18} /></button>
          </div>
-         <button onClick={refreshData} className="p-3 bg-white text-indigo-600 rounded-xl shadow-sm border border-indigo-100 active:scale-95 transition-transform"><RefreshCw size={18} /></button>
+
+         {/* QIDIRUV MAYDONI */}
+         <div className="relative group">
+             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
+             <input 
+                type="text" 
+                placeholder="Search student or group..." 
+                className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm placeholder:text-slate-400"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+             />
+         </div>
        </div>
 
        {/* CONTENT */}
        <div className="space-y-4">
-         {reportData.length === 0 ? (
+         {filteredData.length === 0 ? (
            <div className="bg-white p-10 rounded-[2rem] border border-slate-100 text-center shadow-sm flex flex-col items-center">
               <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mb-4">
                   <CheckCircle2 size={32} className="text-emerald-400" />
@@ -193,7 +257,7 @@ const Debtors = () => {
               <p className="text-xs text-slate-400 mt-1">No outstanding debts found.</p>
            </div>
          ) : (
-           reportData.map((group) => (
+           filteredData.map((group) => (
              <div key={group.groupId} className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden transition-all duration-300">
                 <div onClick={() => toggleGroup(group.groupId)} className={`p-5 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors active:bg-slate-100 ${expandedGroup === group.groupId ? 'bg-slate-50/80 border-b border-slate-100' : ''}`}>
                    <div className="flex items-center gap-3">
@@ -233,7 +297,6 @@ const Debtors = () => {
                                     const isMissing = debt.type === 'missing';
                                     const isLow = debt.type === 'low';
                                     
-                                    // Visual Styles
                                     const styles = isMissing 
                                         ? { border: 'border-l-rose-500', bg: 'bg-rose-50/30', icon: 'text-rose-500', btn: 'text-rose-600 hover:bg-rose-50' }
                                         : (isLow ? { border: 'border-l-amber-500', bg: 'bg-amber-50/30', icon: 'text-amber-500', btn: 'text-amber-600 hover:bg-amber-50' } 
@@ -277,6 +340,7 @@ const Debtors = () => {
                                                           ) : (
                                                               <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">Missing</span>
                                                           )}
+                                                          {/* TIMER */}
                                                           {task.status === 'low' && task.deadline && <CountdownTimer deadline={task.deadline} />}
                                                       </div>
                                                   </div>

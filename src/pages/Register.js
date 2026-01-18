@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { Loader2, GraduationCap, User, Mail, Lock } from 'lucide-react';
+import { Loader2, GraduationCap, User, Mail, Lock, Phone } from 'lucide-react';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -11,6 +11,7 @@ const Register = () => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState(''); // 🔥 Yangi state: Telefon
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -21,16 +22,17 @@ const Register = () => {
     try {
       const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
-      // 1. AUTHENTICATION
+      // 1. AUTHENTICATION (Email/Parol orqali akkaunt ochish)
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // 2. DATABASE
+      // 2. DATABASE (Barcha ma'lumotlarni, shu jumladan telefonni saqlash)
       await setDoc(doc(db, "students", user.uid), {
         name: fullName,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email,
+        phone: phone, // 🔥 Telefon raqam bazaga yoziladi
         role: 'student',
         groupId: null,
         status: 'active',
@@ -52,7 +54,7 @@ const Register = () => {
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden font-sans py-10">
       
-      {/* 1. ORQA FON RASMI (Login.js bilan bir xil) */}
+      {/* 1. ORQA FON RASMI */}
       <div 
         className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat transform scale-105"
         style={{
@@ -66,7 +68,7 @@ const Register = () => {
       <div className="absolute top-10 left-10 w-32 h-32 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse"></div>
       <div className="absolute bottom-10 right-10 w-32 h-32 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse delay-1000"></div>
 
-      {/* 3. GLASS CARD (IXCHAMLASHTIRILGAN) */}
+      {/* 3. GLASS CARD */}
       <div className="relative z-10 w-full max-w-sm sm:max-w-[380px] mx-4 p-6 sm:p-8 rounded-2xl border border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)] bg-white/10 backdrop-blur-md">
         
         {/* Sarlavha */}
@@ -81,7 +83,7 @@ const Register = () => {
         {/* Forma */}
         <form onSubmit={handleRegister} className="space-y-4">
           
-          {/* Ism va Familiya (Yonma-yon) */}
+          {/* Ism va Familiya */}
           <div className="flex gap-3">
             <div className="relative group w-1/2">
                <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-300 group-focus-within:text-white transition-colors">
@@ -120,6 +122,21 @@ const Register = () => {
               className="w-full py-3 pl-10 pr-4 bg-white/20 border border-white/20 rounded-xl text-sm text-white placeholder-gray-300 focus:outline-none focus:bg-white/30 focus:border-white/50 focus:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          {/* 🔥 YANGI: Telefon Raqam Inputi */}
+          <div className="relative group">
+            <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-300 group-focus-within:text-white transition-colors">
+                <Phone className="w-5 h-5" />
+            </div>
+            <input 
+              type="tel" 
+              required
+              placeholder="Telefon (+998...)" 
+              className="w-full py-3 pl-10 pr-4 bg-white/20 border border-white/20 rounded-xl text-sm text-white placeholder-gray-300 focus:outline-none focus:bg-white/30 focus:border-white/50 focus:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all duration-300"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
             />
           </div>
 

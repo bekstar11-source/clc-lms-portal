@@ -11,12 +11,12 @@ const SprintGame = () => {
   const [loading, setLoading] = useState(true);
   const [gameData, setGameData] = useState(null);
   const [totalXp, setTotalXp] = useState(0);
+  const [sessionXp, setSessionXp] = useState(0); // 🔥 Session XP
 
   // Gameplay
   const [gameState, setGameState] = useState('menu');
   const [selectedLevel, setSelectedLevel] = useState(null);
   
-  // 🔥 YANGI STATES
   const [questionQueue, setQuestionQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
@@ -26,6 +26,7 @@ const SprintGame = () => {
   const [lives, setLives] = useState(3);
   const [streak, setStreak] = useState(0);
   const [feedback, setFeedback] = useState(null);
+  const [showXpAnim, setShowXpAnim] = useState(false); // 🔥 XP Animatsiya
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -54,7 +55,6 @@ const SprintGame = () => {
     return () => clearTimeout(timerRef.current);
   }, [timeLeft, gameState]);
 
-  // 🔥 SHUFFLE ALGORITMI
   const shuffleArray = (array) => {
     let arr = [...array];
     for (let i = arr.length - 1; i > 0; i--) {
@@ -68,25 +68,24 @@ const SprintGame = () => {
       const level = gameData.levels[levelKey];
       if (!level.questions || level.questions.length === 0) return alert("Savollar yo'q");
       
-      // 1. Savollarni aralashtirib olamiz
       const shuffledQs = shuffleArray(level.questions);
       setQuestionQueue(shuffledQs);
       setCurrentIndex(0);
 
       setSelectedLevel(levelKey); 
-      setScore(0); setLives(3); setStreak(0); setGameState('playing');
+      setScore(0); setLives(3); setStreak(0); setSessionXp(0); 
+      setGameState('playing');
       setTimeLeft(level.baseTime || 10);
       
-      // Birinchi savol
       loadQuestion(shuffledQs[0]);
   };
 
   const loadQuestion = (q) => {
-      if(!q) return; // Agar savol qolmasa
-      // Variantlarni aralashtiramiz
+      if(!q) return; 
       const shuffledOptions = shuffleArray(q.options);
       setCurrentQuestion({ ...q, options: shuffledOptions });
       setFeedback(null);
+      setShowXpAnim(false);
   };
 
   const nextQuestion = () => {
@@ -95,21 +94,27 @@ const SprintGame = () => {
           setCurrentIndex(nextIdx);
           loadQuestion(questionQueue[nextIdx]);
       } else {
-          setGameState('game_over'); // Savollar tugadi
+          setGameState('game_over'); 
       }
   }
 
   const handleAnswer = (option) => {
       if (feedback) return;
       if (option === currentQuestion.a) {
-          setFeedback('correct'); setScore(s=>s+1); setStreak(s=>s+1);
+          setFeedback('correct'); 
+          setScore(s=>s+1); 
+          setStreak(s=>s+1);
           setTimeLeft(prev => Math.min(gameData.levels[selectedLevel].baseTime || 10, prev + 2));
           
+          // 🔥 XP Reward & Animation
           const user = auth.currentUser;
           const reward = gameData.levels[selectedLevel].xpReward || 5; 
+          setSessionXp(prev => prev + reward);
+          setShowXpAnim(true);
+
           if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) });
           
-          setTimeout(() => nextQuestion(), 400); // 🔥
+          setTimeout(() => nextQuestion(), 600); // 400 dan 600 ga oshirildi (animatsiya ko'rinishi uchun)
       } else {
           handleWrong();
       }
@@ -120,39 +125,41 @@ const SprintGame = () => {
       if (lives <= 1) setTimeout(() => setGameState('game_over'), 500);
       else setTimeout(() => {
           setTimeLeft(gameData.levels[selectedLevel].baseTime || 10);
-          nextQuestion(); // 🔥 Xato bo'lsa ham keyingisiga o'tamiz
+          nextQuestion(); 
       }, 500);
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950"><Loader2 className="animate-spin text-indigo-500"/></div>;
+  if (loading) return <div className="h-[100dvh] flex items-center justify-center bg-slate-950"><Loader2 className="animate-spin text-indigo-500"/></div>;
 
   // --- MENU UI ---
   if(gameState === 'menu') {
       return (
-          <div className="min-h-screen bg-slate-950 p-4 pb-20 text-white font-sans">
-              <div className="flex justify-between items-center mb-8">
-                  <button onClick={()=>navigate('/games')} className="p-2 bg-slate-800 rounded-full"><Home size={20}/></button>
-                  <div className="bg-slate-900 px-3 py-1 rounded-full border border-slate-800 text-yellow-400 font-bold text-sm">XP: {totalXp}</div>
-              </div>
-              <h1 className="text-4xl font-black text-center mb-2 italic bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-orange-500">SPRINT</h1>
-              <p className="text-center text-slate-500 text-sm mb-8">Tezlik va aniqlik sinovi</p>
-              
-              <div className="space-y-4 max-w-md mx-auto">
-                  {gameData && gameData.levels && Object.keys(gameData.levels).sort((a,b)=>gameData.levels[a].order-gameData.levels[b].order).map(key => {
-                      const level = gameData.levels[key];
-                      return (
-                          <button key={key} onClick={()=>startChallenge(key)} className={`w-full p-5 rounded-3xl bg-gradient-to-r ${level.color || 'from-slate-800 to-slate-700'} relative overflow-hidden group text-left shadow-lg active:scale-95 transition-transform border border-white/5`}>
-                              <div className="relative z-10">
-                                  <h3 className="text-xl font-bold uppercase italic">{level.title}</h3>
-                                  <div className="flex items-center gap-3 mt-1 text-xs font-medium opacity-80">
-                                      <span className="flex items-center gap-1"><Clock size={12}/> {level.baseTime}s</span>
-                                      <span className="flex items-center gap-1"><Zap size={12}/> +{level.xpReward} XP</span>
-                                  </div>
-                              </div>
-                              <Clock size={80} className="absolute -right-4 -bottom-4 opacity-10 rotate-12"/>
-                          </button>
-                      )
-                  })}
+          <div className="fixed inset-0 bg-slate-950 text-white font-sans overflow-y-auto overscroll-contain touch-manipulation">
+              <div className="p-4 pb-20 pt-[calc(1rem+env(safe-area-inset-top))]">
+                <div className="flex justify-between items-center mb-8">
+                    <button onClick={()=>navigate('/games')} className="p-2 bg-slate-800 rounded-full"><Home size={20}/></button>
+                    <div className="bg-slate-900 px-3 py-1 rounded-full border border-slate-800 text-yellow-400 font-bold text-sm">XP: {totalXp}</div>
+                </div>
+                <h1 className="text-4xl font-black text-center mb-2 italic bg-clip-text text-transparent bg-gradient-to-r from-amber-400 to-orange-500">SPRINT</h1>
+                <p className="text-center text-slate-500 text-sm mb-8">Tezlik va aniqlik sinovi</p>
+                
+                <div className="space-y-4 max-w-md mx-auto">
+                    {gameData && gameData.levels && Object.keys(gameData.levels).sort((a,b)=>gameData.levels[a].order-gameData.levels[b].order).map(key => {
+                        const level = gameData.levels[key];
+                        return (
+                            <button key={key} onClick={()=>startChallenge(key)} className={`w-full p-5 rounded-3xl bg-gradient-to-r ${level.color || 'from-slate-800 to-slate-700'} relative overflow-hidden group text-left shadow-lg active:scale-95 transition-transform border border-white/5`}>
+                                <div className="relative z-10">
+                                    <h3 className="text-xl font-bold uppercase italic">{level.title}</h3>
+                                    <div className="flex items-center gap-3 mt-1 text-xs font-medium opacity-80">
+                                        <span className="flex items-center gap-1"><Clock size={12}/> {level.baseTime}s</span>
+                                        <span className="flex items-center gap-1"><Zap size={12}/> +{level.xpReward} XP</span>
+                                    </div>
+                                </div>
+                                <Clock size={80} className="absolute -right-4 -bottom-4 opacity-10 rotate-12"/>
+                            </button>
+                        )
+                    })}
+                </div>
               </div>
           </div>
       )
@@ -161,14 +168,16 @@ const SprintGame = () => {
   // --- GAME OVER UI ---
   if(gameState === 'game_over') {
       return (
-          <div className="h-screen flex flex-col items-center justify-center bg-slate-950 p-6 text-center text-white">
+          <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950 p-6 text-center text-white">
               <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center mb-6 animate-bounce">
                   <AlertCircle size={48} className="text-rose-500"/>
               </div>
               <h2 className="text-4xl font-black mb-2">GAME OVER</h2>
-              <p className="text-slate-400 mb-8">Yaxshi urinish!</p>
+              <div className="text-emerald-400 font-black text-xl mb-4">+{sessionXp} XP Earned</div>
+              
               <div className="text-6xl font-black text-white mb-2">{score}</div>
               <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-12">Total Score</p>
+              
               <div className="w-full max-w-xs space-y-3">
                   <button onClick={()=>startChallenge(selectedLevel)} className="w-full py-4 bg-indigo-600 rounded-xl font-bold text-white shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2"><RefreshCw size={20}/> Qayta o'ynash</button>
                   <button onClick={()=>setGameState('menu')} className="w-full py-4 bg-slate-800 rounded-xl font-bold text-slate-400 active:scale-95 transition-transform">Menyu</button>
@@ -179,19 +188,28 @@ const SprintGame = () => {
 
   // --- PLAYING UI ---
   return (
-      <div className="flex flex-col h-screen bg-slate-950 text-white font-sans overflow-hidden touch-manipulation">
+      <div className="fixed inset-0 flex flex-col bg-slate-950 text-white font-sans overflow-hidden touch-manipulation overscroll-contain">
           {/* Timer Bar */}
-          <div className="h-2 w-full bg-slate-900">
+          <div className="h-2 w-full bg-slate-900 shrink-0">
              <div className={`h-full transition-all duration-100 ease-linear ${timeLeft < 3 ? 'bg-rose-500' : 'bg-yellow-400'}`} style={{ width: `${(timeLeft / (gameData.levels[selectedLevel].baseTime || 10)) * 100}%` }} />
           </div>
 
-          <div className="flex justify-between items-center p-4">
+          <div className="flex justify-between items-center p-4 shrink-0">
               <div className="flex gap-1">{[...Array(3)].map((_,i)=><Heart key={i} size={24} className={i<lives?'text-rose-500 fill-rose-500':'text-slate-800 fill-slate-800'}/>)}</div>
               <div className="text-4xl font-black tabular-nums tracking-tighter">{score}</div>
               <div className="flex items-center gap-1 text-orange-500 font-bold"><Flame size={20} className={streak>5?'animate-bounce':''}/>{streak}</div>
           </div>
 
-          <div className="flex-1 flex flex-col justify-center px-6 pb-10 max-w-md mx-auto w-full">
+          {/* 🔥 XP Animation Overlay */}
+          {showXpAnim && (
+              <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+                  <div className="animate-float-up flex flex-col items-center">
+                      <span className="text-5xl font-black text-yellow-400 drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]">+{gameData.levels[selectedLevel].xpReward} XP</span>
+                  </div>
+              </div>
+          )}
+
+          <div className="flex-1 flex flex-col justify-center px-6 pb-10 max-w-md mx-auto w-full overflow-y-auto">
               <div className={`w-full bg-slate-900 p-8 rounded-[2rem] border-2 text-center mb-8 transition-colors duration-200 shadow-xl
                  ${feedback==='correct'?'border-emerald-500 bg-emerald-500/10':feedback==='wrong'?'border-rose-500 bg-rose-500/10':'border-slate-800'}`}>
                   <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mb-4">SAVOL ({currentIndex + 1}/{questionQueue.length})</p>
@@ -218,6 +236,18 @@ const SprintGame = () => {
                   ))}
               </div>
           </div>
+
+          <style>{`
+            @keyframes float-up {
+                0% { transform: translateY(0) scale(0.8); opacity: 0; }
+                20% { transform: translateY(-20px) scale(1.1); opacity: 1; }
+                80% { transform: translateY(-50px) scale(1); opacity: 1; }
+                100% { transform: translateY(-70px) scale(0.9); opacity: 0; }
+            }
+            .animate-float-up {
+                animation: float-up 0.8s ease-out forwards;
+            }
+          `}</style>
       </div>
   );
 };

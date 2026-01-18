@@ -72,12 +72,30 @@ const Assignments = () => {
         const userSnap = await getDoc(userRef);
         const role = userSnap.exists() ? userSnap.data().role : 'student';
 
-        let qGroups;
-        if (role === 'admin') qGroups = query(collection(db, "groups"));
-        else qGroups = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-        
-        const groupSnap = await getDocs(qGroups);
-        const fetchedGroups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        let fetchedGroups = [];
+
+        if (role === 'admin') {
+            const qGroups = query(collection(db, "groups"));
+            const groupSnap = await getDocs(qGroups);
+            fetchedGroups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } else {
+            // 🔥 ASSISTANT FIX: 2 ta Query (Teacher va Assistant)
+            const qMain = query(collection(db, "groups"), where("teacherId", "==", user.uid));
+            const qAssist = query(collection(db, "groups"), where("assistantTeacherId", "==", user.uid));
+            
+            const [mainSnap, assistSnap] = await Promise.all([
+                getDocs(qMain), getDocs(qAssist)
+            ]);
+
+            const mainGroups = mainSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const assistGroups = assistSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            // Birlashtirish va dublikatlarni tozalash
+            const allRawGroups = [...mainGroups, ...assistGroups];
+            fetchedGroups = allRawGroups.filter((group, index, self) =>
+                index === self.findIndex((t) => t.id === group.id)
+            );
+        }
 
         const detailsMap = {};
         
@@ -88,7 +106,7 @@ const Assignments = () => {
                  getDocs(query(collection(db, "grades"), where("groupId", "==", grp.id)))
              ]);
 
-             // 🔥 DATA NORMALIZATION (Tasks ID qo'shish)
+             // DATA NORMALIZATION
              const normalizedLessons = lessonSnap.docs.map(d => {
                  const data = d.data();
                  const tasks = (data.tasks || []).map(t => {
@@ -263,14 +281,13 @@ const Assignments = () => {
     setNewTasks(tasksWithIds);
   };
 
-  // --- 🔥 BATCH UPDATE (Vazifa nomi o'zgarsa baholar ham yangilanadi) ---
+  // --- BATCH UPDATE ---
   const handleUpdate = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
       const batch = writeBatch(db);
       
-      // 1. Darsni yangilash
       const lessonRef = doc(db, "lessons", editingLesson.id);
       batch.update(lessonRef, { 
           topic: newTopic, 
@@ -278,11 +295,8 @@ const Assignments = () => {
           updatedAt: serverTimestamp() 
       });
 
-      // 2. Baholarni tekshirish (Migration)
       for (const newTask of newTasks) {
           const oldTask = editingLesson.tasks.find(t => t.id === newTask.id);
-          
-          // Agar nom o'zgargan bo'lsa
           if (oldTask && oldTask.text !== newTask.text) {
               const qGrades = query(
                   collection(db, "grades"), 
@@ -302,12 +316,8 @@ const Assignments = () => {
 
       await batch.commit();
 
-      // Local Cache update (simple refresh is safest here, but lets try update)
       const updatedLesson = { ...editingLesson, topic: newTopic, tasks: newTasks };
       updateCacheLocally('lesson_update', updatedLesson);
-      
-      // Agar nom o'zgargan bo'lsa, local gradedagi nomlarni ham o'zgartirish kerak,
-      // lekin refreshData qilish ishonchliroq.
       refreshData(); 
       
       setEditingLesson(null);
@@ -458,11 +468,10 @@ const Assignments = () => {
          </div>
       </div>
 
-      {/* --- GRADING MODAL (MOBILE FIXED) --- */}
+      {/* --- GRADING MODAL --- */}
       {gradingLesson && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setGradingLesson(null)}></div>
-          {/* 🔥 80dvh va mobilga moslashtirish */}
           <div className="bg-white w-full max-w-5xl h-[90dvh] sm:h-[90vh] flex flex-col relative z-10 shadow-2xl overflow-hidden border border-white sm:rounded-[2rem] rounded-t-[2rem] mt-auto sm:mt-0 animate-in slide-in-from-bottom duration-300">
             
             {/* Modal Header */}
@@ -548,7 +557,7 @@ const Assignments = () => {
         </div>
       )}
 
-      {/* --- EDIT MODAL (MOBILE FIXED) --- */}
+      {/* --- EDIT MODAL --- */}
       {editingLesson && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setEditingLesson(null)}></div>
