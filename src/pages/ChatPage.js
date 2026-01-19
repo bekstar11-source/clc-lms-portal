@@ -6,8 +6,10 @@ import {
 } from 'firebase/firestore';
 import { 
   Send, Search, ArrowLeft, MoreVertical, 
-  Phone, Paperclip, Smile, CheckCheck, Check, Users 
+  Phone, Paperclip, Smile, CheckCheck, Check, Users, Home, Loader2 
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import EmojiPicker from 'emoji-picker-react'; 
 
 // --- STYLES ---
 const styles = `
@@ -15,16 +17,7 @@ const styles = `
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background-color: rgba(0, 0, 0, 0.1); border-radius: 20px; }
   .chat-background { background-color: #f0f2f5; background-image: radial-gradient(#e5e7eb 1px, transparent 1px); background-size: 20px 20px; }
-  .glass-header { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(0,0,0,0.05); }
-  @keyframes shimmer {
-    0% { background-position: -1000px 0; }
-    100% { background-position: 1000px 0; }
-  }
-  .animate-shimmer {
-    animation: shimmer 2s infinite linear;
-    background: linear-gradient(to right, #f3f4f6 4%, #e5e7eb 25%, #f3f4f6 36%);
-    background-size: 1000px 100%;
-  }
+  .glass-header { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(0,0,0,0.08); }
 `;
 
 // --- SKELETON LOADER ---
@@ -32,10 +25,10 @@ const ChatListSkeleton = () => (
   <div className="space-y-4 p-4 animate-in fade-in duration-500">
     {[1, 2, 3, 4, 5, 6].map((i) => (
       <div key={i} className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full animate-shimmer shrink-0"></div>
+        <div className="w-12 h-12 rounded-full bg-slate-200 animate-pulse shrink-0"></div>
         <div className="flex-1 space-y-2">
-          <div className="h-4 w-3/4 rounded animate-shimmer"></div>
-          <div className="h-3 w-1/2 rounded animate-shimmer"></div>
+          <div className="h-4 w-3/4 bg-slate-200 rounded animate-pulse"></div>
+          <div className="h-3 w-1/2 bg-slate-200 rounded animate-pulse"></div>
         </div>
       </div>
     ))}
@@ -62,6 +55,7 @@ const getDateLabel = (timestamp) => {
 };
 
 const ChatPage = () => {
+  const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]); 
   const [filteredUsers, setFilteredUsers] = useState([]); 
@@ -70,7 +64,9 @@ const ChatPage = () => {
   const [messages, setMessages] = useState([]); 
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  
+  const [isSending, setIsSending] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
+
   const scrollRef = useRef();
 
   // 1. INIT & USERS LOADING
@@ -89,26 +85,20 @@ const ChatPage = () => {
         
         setCurrentUser(userData);
 
-        // 🔥 O'ZGARISH: So'rovni soddalashtiramiz
         let qUsers;
         if (userData.role === 'student') {
-            // Student faqat Teacher va Adminni ko'radi
             qUsers = query(collection(db, "students"), where("role", "in", ["teacher", "admin"]));
         } else {
-            // Teacher va Admin HAMMA studentlarni ko'radi
-            // where("role", "==", "student") o'rniga oddiyroq yo'l tutamiz
-            // chunki ba'zi studentlarda role yozilmagan bo'lishi mumkin
             qUsers = query(collection(db, "students")); 
         }
 
         const snapUsers = await getDocs(qUsers);
         
-        // O'zini va (Teacher bo'lsa) boshqa Teacherlarni ro'yxatdan chiqarib tashlaymiz
         const contactList = snapUsers.docs
             .map(d => ({ uid: d.id, ...d.data() }))
-            .filter(u => u.uid !== user.uid) // O'zini ko'rsatmasin
+            .filter(u => u.uid !== user.uid)
             .filter(u => {
-                if (userData.role === 'teacher') return u.role !== 'teacher' && u.role !== 'admin'; // Teacher boshqa teacherni ko'rmasin (xohlasangiz o'chiring)
+                if (userData.role === 'teacher') return u.role !== 'teacher' && u.role !== 'admin';
                 return true;
             });
 
@@ -133,12 +123,11 @@ const ChatPage = () => {
                 };
             });
 
-            // 🔥 SORTING: Agar chat bo'lsa tepaga, bo'lmasa Ism bo'yicha
             detailedUsers.sort((a, b) => {
                 if (b.lastUpdated !== a.lastUpdated) {
-                    return b.lastUpdated - a.lastUpdated; // Yangi xabar tepada
+                    return b.lastUpdated - a.lastUpdated; 
                 }
-                return a.name.localeCompare(b.name); // Chat bo'lmasa alfavit bo'yicha
+                return a.name.localeCompare(b.name);
             });
 
             setUsers(detailedUsers);
@@ -198,7 +187,12 @@ const ChatPage = () => {
   // 4. SEND MESSAGE
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedUser) return;
+    if (!newMessage.trim() || !selectedUser || isSending) return;
+
+    setIsSending(true);
+    const messageToSend = newMessage;
+    setNewMessage("");
+    setShowEmoji(false);
 
     const chatId = currentUser.uid > selectedUser.uid 
       ? `${currentUser.uid}_${selectedUser.uid}` 
@@ -209,7 +203,7 @@ const ChatPage = () => {
         const chatSnap = await getDoc(chatRef);
 
         const msgData = {
-            lastMessage: newMessage,
+            lastMessage: messageToSend,
             lastUpdated: serverTimestamp(),
             [`unreadCounts.${selectedUser.uid}`]: increment(1)
         };
@@ -225,12 +219,16 @@ const ChatPage = () => {
         }
 
         await addDoc(collection(db, "chats", chatId, "messages"), {
-            text: newMessage,
+            text: messageToSend,
             senderId: currentUser.uid,
             createdAt: serverTimestamp(),
         });
-        setNewMessage("");
-    } catch (err) { console.error(err); }
+        
+    } catch (err) { 
+        console.error(err); 
+    } finally {
+        setIsSending(false);
+    }
   };
 
   const getAvatarGradient = (name) => {
@@ -245,23 +243,36 @@ const ChatPage = () => {
     return `bg-gradient-to-br ${gradients[index]}`;
   };
 
+  const onEmojiClick = (emojiObject) => {
+    setNewMessage(prev => prev + emojiObject.emoji);
+  };
+
   return (
     <>
       <style>{styles}</style>
-      <div className="flex h-screen bg-gray-50 overflow-hidden font-sans fixed inset-0">
+      
+      {/* 🔥 FIX 1: FIXED INSET-0 ISHLATILDI. Bu butun ekranni qotirib ushlab turadi */}
+      <div className="fixed inset-0 flex bg-gray-50 overflow-hidden font-sans">
         
-        {/* --- SIDEBAR --- */}
+        {/* --- 1. SIDEBAR (LIST) --- */}
         <div className={`
-          w-full md:w-[350px] lg:w-[400px] flex flex-col bg-white border-r border-gray-200 
-          transition-transform duration-300 z-30
+          flex-col h-full bg-white border-r border-gray-200 shrink-0
+          w-full md:w-[350px] lg:w-[400px]
+          transition-all duration-300
           ${selectedUser ? 'hidden md:flex' : 'flex'}
         `}>
           
-          <div className="px-4 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-             <h1 className="text-2xl font-bold text-gray-800 mb-4 px-1 flex items-center gap-2">
-                Xabarlar 
-                <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{filteredUsers.length}</span>
-             </h1>
+          <div className="px-4 py-4 border-b border-gray-100 bg-white shrink-0 z-10">
+             <div className="flex justify-between items-center mb-4">
+                 <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    Xabarlar 
+                    <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{filteredUsers.length}</span>
+                 </h1>
+                 <button onClick={() => navigate('/')} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-600 transition-colors active:scale-95">
+                    <Home size={20}/>
+                 </button>
+             </div>
+
              <div className="relative group">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={20}/>
                <input 
@@ -288,7 +299,7 @@ const ChatPage = () => {
                    key={user.uid} 
                    onClick={() => setSelectedUser(user)}
                    className={`
-                     group flex items-center gap-3 px-3 py-3 mb-1 rounded-xl cursor-pointer transition-all duration-200 animate-in fade-in slide-in-from-left-4
+                     group flex items-center gap-3 px-3 py-3 mb-1 rounded-xl cursor-pointer transition-all duration-200
                      ${selectedUser?.uid === user.uid ? 'bg-blue-600 shadow-md transform scale-[1.02]' : 'hover:bg-gray-100'}
                    `}
                  >
@@ -327,17 +338,21 @@ const ChatPage = () => {
           </div>
         </div>
 
-        {/* --- MAIN CHAT WINDOW --- */}
-        <div className={`flex-1 flex flex-col relative ${!selectedUser ? 'hidden md:flex' : 'flex'} h-full bg-[#f8fafc]`}>
+        {/* --- 2. CHAT WINDOW (O'NG TARAF) --- */}
+        {/* flex-col va h-full ishlatildi. Header shrink-0, Message flex-1, Input shrink-0 */}
+        <div className={`
+          flex-1 flex flex-col h-full bg-[#f8fafc] relative min-w-0
+          ${!selectedUser ? 'hidden md:flex' : 'flex'}
+        `}>
           
           {selectedUser ? (
             <>
               <div className="absolute inset-0 chat-background opacity-60 pointer-events-none"></div>
 
-              {/* Chat Header */}
-              <div className="glass-header px-4 py-3 flex items-center justify-between shadow-sm z-20 border-b border-gray-200/50 shrink-0">
+              {/* 🔥 HEADER (TEPADA QOTIB TURADI) - shrink-0 z-20 */}
+              <div className="glass-header px-4 py-3 flex items-center justify-between shadow-sm z-20 border-b border-gray-200/50 shrink-0 sticky top-0">
                  <div className="flex items-center gap-3 cursor-pointer" onClick={() => setSelectedUser(null)}>
-                    <button className="md:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full">
+                    <button className="md:hidden p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-full active:bg-gray-200 transition-colors">
                       <ArrowLeft size={20} />
                     </button>
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${getAvatarGradient(selectedUser.name)}`}>
@@ -354,7 +369,7 @@ const ChatPage = () => {
                  </div>
               </div>
 
-              {/* Messages Area */}
+              {/* 🔥 MESSAGES (O'RTADA, SKROLL BO'LADI) - flex-1 overflow-y-auto */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1 z-10 custom-scrollbar scroll-smooth">
                  {messages.map((msg, index) => {
                    const isMe = msg.senderId === currentUser.uid;
@@ -393,9 +408,27 @@ const ChatPage = () => {
                  <div ref={scrollRef} className="h-2"></div>
               </div>
 
-              {/* Input Area (FIXED) */}
-              <div className="p-2 z-20 bg-white border-t border-slate-100 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
-                 <form onSubmit={handleSendMessage} className="flex items-end gap-2 bg-slate-50 p-1.5 rounded-[24px] border border-slate-200 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100 transition-all">
+              {/* 🔥 INPUT (PASTDA QOTIB TURADI) - shrink-0 z-20 */}
+              <div className="p-2 z-20 bg-white border-t border-slate-100 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] relative shrink-0">
+                 
+                 {/* EMOJI PICKER OVERLAY */}
+                 {showEmoji && (
+                     <>
+                         <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setShowEmoji(false)}></div>
+                         <div className="absolute bottom-16 left-0 sm:left-2 right-0 sm:right-auto z-50 mx-2 sm:mx-0 shadow-2xl rounded-2xl overflow-hidden">
+                             <EmojiPicker 
+                                 onEmojiClick={onEmojiClick} 
+                                 width="100%" 
+                                 height={350} 
+                                 previewConfig={{ showPreview: false }} 
+                                 searchDisabled={false}
+                                 skinTonesDisabled={true} 
+                             />
+                         </div>
+                     </>
+                 )}
+
+                 <form onSubmit={handleSendMessage} className="flex items-end gap-2 bg-slate-50 p-1.5 rounded-[24px] border border-slate-200 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100 transition-all relative z-50">
                     
                     <button type="button" className="p-2.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-full transition-all shrink-0">
                         <Paperclip size={20}/>
@@ -404,30 +437,35 @@ const ChatPage = () => {
                     <input 
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
+                      onFocus={() => setShowEmoji(false)} 
                       className="flex-1 bg-transparent py-3 max-h-32 text-gray-800 outline-none placeholder:text-gray-400 font-medium min-w-0"
                       placeholder="Xabar yozing..."
                     />
                     
-                    <button type="button" className="p-2.5 text-gray-400 hover:text-yellow-500 hover:bg-white rounded-full transition-all shrink-0">
+                    <button 
+                        type="button" 
+                        onClick={(e) => { e.preventDefault(); setShowEmoji(!showEmoji); }}
+                        className={`p-2.5 rounded-full transition-all shrink-0 ${showEmoji ? 'text-yellow-500 bg-yellow-50' : 'text-gray-400 hover:text-yellow-500 hover:bg-white'}`}
+                    >
                         <Smile size={20}/>
                     </button>
 
                     <button 
                         type="submit" 
-                        disabled={!newMessage.trim()}
+                        disabled={!newMessage.trim() || isSending}
                         className={`p-2.5 rounded-full shadow-md transition-all shrink-0 flex items-center justify-center
-                            ${newMessage.trim() 
+                            ${newMessage.trim() && !isSending
                                 ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95 animate-in zoom-in duration-200' 
                                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'}
                         `}
                     >
-                        <Send size={18} className={newMessage.trim() ? "ml-0.5" : ""}/>
+                        {isSending ? <Loader2 size={18} className="animate-spin"/> : <Send size={18} className={newMessage.trim() ? "ml-0.5" : ""}/>}
                     </button>
                  </form>
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center z-10 select-none text-center p-6 bg-slate-50">
+            <div className="flex-1 flex flex-col items-center justify-center z-10 select-none text-center p-6 bg-slate-50 h-full">
                <div className="bg-white p-8 rounded-full mb-6 shadow-sm border border-slate-100 animate-bounce-slow">
                   <div className="bg-blue-50 p-6 rounded-full">
                     <Send size={64} className="text-blue-500 ml-2"/>

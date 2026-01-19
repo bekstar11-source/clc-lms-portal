@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   LogOut, Settings, Trophy, AlertCircle, BookOpen,
   ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw,
   ClipboardList, Zap, Gamepad2, Megaphone, Timer, CheckCircle2, X,
   MessageCircle, AlertTriangle, Medal, ChevronRight, TrendingUp, Home, PieChart,
-  Image as ImageIcon // Fon rasmi ikonkasini
+  Image as ImageIcon, FileText, CheckSquare, Square, ListTodo, Layers, Bookmark 
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, orderBy, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore'; 
@@ -13,23 +13,21 @@ import { signOut } from 'firebase/auth';
 import { 
   XAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
-import { App } from '@capacitor/app'; // 🔥 BACK TUGMASI UCHUN MUHIM IMPORT
+import { App } from '@capacitor/app';
 
 // --- CONFIG ---
 const CACHE_KEY = 'student_dashboard_cache';
 const CACHE_DURATION = 10 * 60 * 1000; 
 
-// 🔥 FON RASMLARI RO'YXATI
 const BACKGROUNDS = [
-  "https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448", // Original
-  "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop", // Kosmos
-  "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=2029&auto=format&fit=crop", // Gradient
-  "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop", // Yorqin
-  "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?q=80&w=2072&auto=format&fit=crop", // Tungi
-  "https://github.com/user-attachments/assets/060d6d79-1665-4c0a-8ec5-07c7fdbfb6c6"  // Neon
+  "https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448", 
+  "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop", 
+  "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=2029&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop", 
+  "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?q=80&w=2072&auto=format&fit=crop", 
+  "https://github.com/user-attachments/assets/060d6d79-1665-4c0a-8ec5-07c7fdbfb6c6"
 ];
 
-// --- HELPERS ---
 const triggerHaptic = (type = 'tap') => {
   if (navigator.vibrate) {
      if (type === 'tap') navigator.vibrate(10); 
@@ -75,7 +73,6 @@ const StudentDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Data States
   const [student, setStudent] = useState(null);
   const [groupName, setGroupName] = useState('');
   const [grades, setGrades] = useState([]);
@@ -86,7 +83,6 @@ const StudentDashboard = () => {
   const [studentRank, setStudentRank] = useState(0);
   const [actionItems, setActionItems] = useState([]);
 
-  // UI States
   const [activeTab, setActiveTab] = useState('dashboard'); 
   const [expandedMonths, setExpandedMonths] = useState({});
   const [notifications, setNotifications] = useState([]);
@@ -95,45 +91,57 @@ const StudentDashboard = () => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
 
-  // 🔥 YANGI STATELAR: FON, FON MENYUSI, CHIQISH MODALI
   const [bgImage, setBgImage] = useState(BACKGROUNDS[0]);
   const [isBgMenuOpen, setIsBgMenuOpen] = useState(false);
-  const [isExitModalOpen, setIsExitModalOpen] = useState(false); // 🔥 Chiqishni so'rash uchun
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
 
   const hasNewHomework = notifications.some(n => n.type === 'lesson');
 
-  // --- ANDROID BACK BUTTON LOGIC ---
   useEffect(() => {
     const backButtonListener = App.addListener('backButton', () => {
-      // 1. Agar chiqish oynasi ochiq bo'lsa -> Chiqish
-      if (isExitModalOpen) {
-        App.exitApp();
-        return;
-      }
-      // 2. Modallar ochiq bo'lsa -> Yopish
+      if (isExitModalOpen) { App.exitApp(); return; }
       if (isNotifOpen) { setIsNotifOpen(false); return; }
       if (isBgMenuOpen) { setIsBgMenuOpen(false); return; }
 
-      // 3. Agar Asosiy (Dashboard) da bo'lmasa -> Dashboardga qaytish
       if (activeTab !== 'dashboard') {
         setActiveTab('dashboard');
         triggerHaptic();
-      } 
-      // 4. Asosiyda bo'lsa -> Chiqish oynasini ochish
-      else {
+      } else {
         setIsExitModalOpen(true);
         triggerHaptic();
       }
     });
-
-    return () => {
-      backButtonListener.then(handler => handler.remove());
-    };
+    return () => { backButtonListener.then(handler => handler.remove()); };
   }, [isExitModalOpen, isNotifOpen, isBgMenuOpen, activeTab]);
 
-  // --- CACHING & FETCHING ---
+  // --- TASK TOGGLE ---
+  const toggleTaskCompletion = async (lessonId, taskIndex, currentStatus) => {
+    triggerHaptic();
+    try {
+        const lessonRef = doc(db, "lessons", lessonId);
+        const lessonDoc = await getDoc(lessonRef);
+        
+        if (lessonDoc.exists()) {
+            const lessonData = lessonDoc.data();
+            const updatedTasks = [...(lessonData.tasks || [])];
+            
+            if (updatedTasks[taskIndex]) {
+                updatedTasks[taskIndex] = {
+                    ...updatedTasks[taskIndex],
+                    completed: !currentStatus
+                };
+                await updateDoc(lessonRef, { tasks: updatedTasks });
+                
+                setLessons(prevLessons => prevLessons.map(l => {
+                    if (l.id === lessonId) return { ...l, tasks: updatedTasks };
+                    return l;
+                }));
+            }
+        }
+    } catch (error) { console.error("Task update error:", error); }
+  };
+
   const loadFromCache = () => {
-    // Foni yuklash
     const savedBg = localStorage.getItem('student_bg');
     if (savedBg) setBgImage(savedBg);
 
@@ -364,7 +372,6 @@ const StudentDashboard = () => {
   };
   const groupedLessons = groupLessonsByMonth();
 
-  // 🔥 FONNI O'ZGARTIRISH HANDLER
   const handleBgChange = (url) => {
       triggerHaptic();
       setBgImage(url);
@@ -388,18 +395,13 @@ const StudentDashboard = () => {
   return (
     <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-slate-50 font-sans touch-none overflow-hidden">
       
-      {/* 🔥 DYNAMIC BACKGROUND */}
+      {/* BACKGROUND */}
       <div className="absolute inset-0 z-0 transition-all duration-500">
-         <div 
-           className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700"
-           style={{
-             backgroundImage: `url('${bgImage}')`
-           }}
-         ></div>
+         <div className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700" style={{ backgroundImage: `url('${bgImage}')` }}></div>
          <div className="absolute inset-0 bg-white/20 backdrop-blur-1xl"></div>
       </div>
 
-      {/* --- HEADER --- */}
+      {/* HEADER */}
       <nav className="relative z-50 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
             <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 shadow-sm">
@@ -412,27 +414,15 @@ const StudentDashboard = () => {
             </div>
             <div className="flex gap-2 items-center">
             
-            {/* 🔥 FONNI O'ZGARTIRISH TUGMASI */}
-            <button 
-                onClick={() => setIsBgMenuOpen(!isBgMenuOpen)} 
-                className={`p-2 rounded-xl transition-all ${isBgMenuOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}
-            >
-                <ImageIcon size={20} />
-            </button>
-
-            <button onClick={handleRefresh} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl active:bg-slate-200 transition-colors">
-                <RefreshCcw size={20} className={isRefreshing ? "animate-spin text-indigo-500" : ""} />
-            </button>
-            <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all relative ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}>
-                <Bell size={20} />
-                {unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
-            </button>
+            <button onClick={() => setIsBgMenuOpen(!isBgMenuOpen)} className={`p-2 rounded-xl transition-all ${isBgMenuOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}><ImageIcon size={20} /></button>
+            <button onClick={handleRefresh} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl active:bg-slate-200 transition-colors"><RefreshCcw size={20} className={isRefreshing ? "animate-spin text-indigo-500" : ""} /></button>
+            <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all relative ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}><Bell size={20} />{unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}</button>
             <button onClick={() => {triggerHaptic(); navigate('/settings');}} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl"><Settings size={20} /></button>
             <button onClick={() => {triggerHaptic(); if(window.confirm('Chiqish?')){signOut(auth); navigate('/');}}} className="p-2 text-slate-400 hover:text-red-500 bg-white/60 rounded-xl"><LogOut size={20} /></button>
             </div>
       </nav>
 
-      {/* 🔥 FON MENYUSI */}
+      {/* BACKGROUND MENU */}
       {isBgMenuOpen && (
           <div className="absolute top-20 right-4 z-[60] bg-white/90 backdrop-blur-xl p-4 rounded-[1.5rem] shadow-2xl border border-white w-64 animate-in slide-in-from-top-2 duration-200">
               <div className="flex justify-between items-center mb-3 px-1">
@@ -441,18 +431,13 @@ const StudentDashboard = () => {
               </div>
               <div className="grid grid-cols-2 gap-2">
                   {BACKGROUNDS.map((bg, idx) => (
-                      <div 
-                        key={idx} 
-                        onClick={() => handleBgChange(bg)}
-                        className={`h-16 rounded-xl bg-cover bg-center cursor-pointer border-2 transition-all active:scale-95 ${bgImage === bg ? 'border-indigo-500 shadow-md scale-95' : 'border-transparent hover:border-slate-300'}`}
-                        style={{ backgroundImage: `url(${bg})` }}
-                      ></div>
+                      <div key={idx} onClick={() => handleBgChange(bg)} className={`h-16 rounded-xl bg-cover bg-center cursor-pointer border-2 transition-all active:scale-95 ${bgImage === bg ? 'border-indigo-500 shadow-md scale-95' : 'border-transparent hover:border-slate-300'}`} style={{ backgroundImage: `url(${bg})` }}></div>
                   ))}
               </div>
           </div>
       )}
 
-      {/* --- NOTIFICATIONS --- */}
+      {/* NOTIFICATIONS */}
       {isNotifOpen && (
             <div className="fixed inset-0 z-[1000] flex items-end sm:items-start sm:justify-end sm:p-4 bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full sm:w-80 h-[80vh] sm:h-auto sm:max-h-[80vh] rounded-t-[2rem] sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-10 duration-300">
@@ -475,15 +460,13 @@ const StudentDashboard = () => {
             </div>
       )}
 
-      {/* --- SCROLLABLE CONTENT --- */}
+      {/* CONTENT */}
       <div className="flex-1 overflow-y-auto z-10 relative scrollbar-hide pb-28 p-4 overscroll-contain">
         <div className="max-w-7xl mx-auto space-y-6">
             
-            {/* 1. DASHBOARD TAB */}
+            {/* 1. DASHBOARD */}
             {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                
-                {/* 1. COMPACT PROFILE CARD */}
                 <div className="bg-gradient-to-br from-indigo-600 to-violet-800 rounded-3xl p-5 text-white shadow-xl shadow-indigo-200/50 relative overflow-hidden">
                     <div className="flex justify-between items-center relative z-10">
                         <div className="flex items-center gap-4">
@@ -521,7 +504,6 @@ const StudentDashboard = () => {
                     <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"></div>
                 </div>
 
-                {/* 2. ACTION ITEMS (ALERT) */}
                 {actionItems.length > 0 && (
                     <div className="bg-red-500 rounded-2xl shadow-lg shadow-red-200 overflow-hidden transition-all duration-300 border border-red-400">
                         <button onClick={() => { triggerHaptic(); setIsAlertsExpanded(!isAlertsExpanded); }} className="w-full flex items-center justify-between p-4 text-white active:bg-red-600 transition-colors">
@@ -556,7 +538,6 @@ const StudentDashboard = () => {
                     </div>
                 )}
 
-                {/* 3. LEADERBOARD */}
                 <div className="bg-white/80 backdrop-blur-sm p-5 rounded-[2rem] border border-white shadow-sm space-y-4">
                 <div className="flex items-center gap-2 mb-2"><Trophy className="text-yellow-500" size={18} /><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Top O'quvchilar</h3></div>
                 <div className="space-y-3">
@@ -575,25 +556,6 @@ const StudentDashboard = () => {
                 </div>
                 </div>
 
-                {/* 4. ANNOUNCEMENTS */}
-                {announcements.length > 0 && (
-                <div>
-                    <div className="flex items-center gap-2 mb-3 px-2"><Megaphone className="text-amber-500" size={16}/><h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Yangiliklar</h2></div>
-                    <div className="flex overflow-x-auto gap-3 pb-2 -mx-4 px-4 scrollbar-hide snap-x">
-                        {announcements.map(ann => (
-                        <div key={ann.id} className="min-w-[85vw] sm:min-w-[300px] snap-center bg-white/90 backdrop-blur p-5 rounded-[2rem] border border-slate-100 shadow-sm relative overflow-hidden">
-                            <p className="font-bold text-slate-700 text-sm leading-relaxed">{ann.text}</p>
-                            <div className="flex items-center gap-2 mt-3">
-                                <span className="bg-amber-100 text-amber-600 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">Admin</span>
-                                <span className="text-[10px] text-slate-400 font-bold">{ann.createdAt ? new Date(ann.createdAt * 1000).toLocaleDateString() : '...'}</span>
-                            </div>
-                        </div>
-                        ))}
-                    </div>
-                </div>
-                )}
-
-                {/* 5. CHART AREA */}
                 <div className="bg-white/80 backdrop-blur-sm p-5 rounded-[2rem] border border-white shadow-sm mb-4">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
@@ -621,14 +583,19 @@ const StudentDashboard = () => {
                     ) : (<div className="flex items-center justify-center h-full text-slate-400 text-xs italic">Ma'lumot yetarli emas</div>)}
                 </div>
                 </div>
-                
             </div>
             )}
             
             {/* 2. SCHEDULE TAB */}
             {activeTab === 'schedule' && (
-            <div className="space-y-6 animate-in fade-in">
-                <h2 className="text-xl font-black text-slate-800 px-2 uppercase italic tracking-tighter">Uyga vazifalar</h2>
+            <div className="space-y-6 animate-in fade-in pb-4">
+                {/* HEADER */}
+                <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-white/50 shadow-sm inline-block">
+                    <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter flex items-center gap-2">
+                        <ClipboardList className="text-indigo-500" /> Uyga vazifalar
+                    </h2>
+                </div>
+
                 {Object.keys(groupedLessons).map((month, index) => {
                 const monthLessons = groupedLessons[month];
                 const isExpanded = expandedMonths[month] || index === 0;
@@ -645,17 +612,43 @@ const StudentDashboard = () => {
                             const isMissing = lesson.rawDate < today && !lessonGrade && !lesson.isDelayed;
                             const isRetake = lessonGrade && lessonGrade.score <= 20;
                             const isProblematic = isMissing || isRetake;
+                            
                             return (
                             <div key={lesson.id} className={`p-5 rounded-[1.5rem] border transition-all ${isProblematic ? 'bg-white border-red-200 shadow-md shadow-red-100/50' : 'bg-white border-slate-100 shadow-sm'} ${lesson.isDelayed ? 'opacity-60 grayscale' : ''}`}>
                                 <div className="flex justify-between items-start gap-3">
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest ${isProblematic ? 'bg-red-500 text-white' : 'bg-indigo-50 text-indigo-600'}`}>{lesson.rawDate}</span>
-                                        {lesson.isDelayed && <span className="text-[9px] font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded-md">Delayed</span>}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest ${isProblematic ? 'bg-red-500 text-white' : 'bg-indigo-50 text-indigo-600'}`}>{lesson.rawDate}</span>
+                                            {lesson.isDelayed && <span className="text-[9px] font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded-md">Delayed</span>}
+                                        </div>
+                                        {/* 🔥 MAVZU (TOPIC) */}
+                                        <h4 className="font-black text-slate-800 text-sm uppercase truncate">{lesson.topic}</h4>
+                                        
+                                        {/* 🔥 VAZIFALAR RO'YXATI (CHECKLIST) */}
+                                        {lesson.tasks && lesson.tasks.length > 0 ? (
+                                            <div className="mt-3 flex flex-col gap-2">
+                                                {lesson.tasks.map((task, taskIdx) => (
+                                                    <div 
+                                                        key={taskIdx}
+                                                        onClick={() => toggleTaskCompletion(lesson.id, taskIdx, task.completed)}
+                                                        className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer active:scale-98 transition-all
+                                                            ${task.completed ? 'bg-emerald-50 border-emerald-100 shadow-sm' : 'bg-white border-slate-200 hover:border-indigo-300'}`}
+                                                    >
+                                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all ${task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+                                                            {task.completed && <CheckSquare size={14} className="text-white" />}
+                                                        </div>
+                                                        <span className={`text-xs font-bold leading-tight ${task.completed ? 'text-emerald-700 line-through opacity-70' : 'text-slate-700'}`}>
+                                                            {task.text}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-[10px] text-slate-400 font-bold mt-2 italic flex items-center gap-1"><Layers size={12}/> Vazifa ro'yxati yo'q</p>
+                                        )}
+
                                     </div>
-                                    <h4 className="font-black text-slate-800 text-sm mt-2 uppercase truncate">{lesson.topic}</h4>
-                                </div>
-                                {isProblematic ? <AlertCircle className="text-red-500 animate-pulse shrink-0" size={20} /> : <BookOpen className="text-slate-200 shrink-0" size={20} />}
+                                    {isProblematic ? <AlertCircle className="text-red-500 animate-pulse shrink-0" size={20} /> : <BookOpen className="text-slate-200 shrink-0" size={20} />}
                                 </div>
                                 {isProblematic && <div className="mt-3 pt-3 border-t border-red-100 flex items-center gap-2 text-red-500 font-bold text-[10px] uppercase"><AlertCircle size={12} /> {isMissing ? "Topshirilmagan" : "Qayta topshirish kerak"}</div>}
                             </div>
@@ -671,32 +664,67 @@ const StudentDashboard = () => {
 
             {/* 3. GRADES TAB */}
             {activeTab === 'grades' && (
-            <div className="space-y-4 animate-in fade-in">
-                <h2 className="text-xl font-black text-slate-800 px-2 uppercase italic tracking-tighter">Barcha Baholar</h2>
+            <div className="space-y-4 animate-in fade-in pb-4">
+                {/* HEADER */}
+                <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-white/50 shadow-sm inline-block">
+                    <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter flex items-center gap-2">
+                        <PieChart className="text-emerald-500" /> Barcha Baholar
+                    </h2>
+                </div>
+
                 <div className="space-y-3">
                 {[...grades].map((g, i) => {
                     const isRetakeNeeded = g.score < 60; 
+                    
                     let daysLeft = null;
                     if (g.retakeDeadline) {
                         const deadline = new Date(g.retakeDeadline);
                         daysLeft = Math.ceil((deadline - new Date()) / (1000 * 60 * 60 * 24));
                     }
+                    
+                    // 🔥 Task nomini aniqlash (Text maydonidan yoki Comment dan)
+                    // Endi "Text" aniq ko'rsatiladi.
+                    const specificTaskName = g.taskName || g.comment || "Umumiy vazifa";
+
                     return (
-                    <div key={i} className={`p-5 rounded-[2rem] border bg-white/90 backdrop-blur-md shadow-sm flex flex-col gap-3 ${isRetakeNeeded ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-100'}`}>
+                    <div key={i} className={`p-3 rounded-2xl border bg-white/90 backdrop-blur-md shadow-sm flex flex-col gap-3 ${isRetakeNeeded ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-100'}`}>
                         <div className="flex items-center justify-between gap-3">
                             <div className="flex-1 min-w-0 pr-2">
-                                <p className="font-black text-slate-700 text-xs uppercase mb-2 truncate">{g.comment || 'Mavzu'}</p>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-md">{g.dateStr}</span>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase bg-slate-100 px-1.5 py-0.5 rounded-md">{g.dateStr}</span>
+                                    {g.type && <span className="text-[8px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md uppercase">{g.type}</span>}
+                                </div>
+                                
+                                {/* 🔥 MAVZU (TOPIC) - TEPADA, KATTA */}
+                                <h3 className="text-xs font-black text-slate-700 leading-tight mb-1 truncate">
+                                    {g.comment || 'Mavzu'}
+                                </h3>
+                                
+                                {/* 🔥 ANIQ VAZIFA (TEXT) - PASTIDA, AJRATILGAN */}
+                                <div className="flex items-center gap-1.5 mt-1">
+                                    <Bookmark size={12} className="text-indigo-400 shrink-0"/>
+                                    <p className="text-[10px] font-medium text-slate-500 line-clamp-1 leading-snug">
+                                        {g.taskType || "Umumiy vazifa"}
+                                    </p>
+                                </div>
+
+                                {g.feedback && <p className="text-[10px] text-slate-400 mt-1 italic flex items-center gap-1 line-clamp-1"><MessageCircle size={10}/> "{g.feedback}"</p>}
                             </div>
-                            <div className={`text-2xl font-black ${g.score >= 80 ? 'text-emerald-500' : g.score <= 60 ? 'text-red-500' : 'text-indigo-600'}`}>{g.score}%</div>
+                            
+                            {/* BAHO KARTASI - IXCHAM VA KATTA RAQAM */}
+                            <div className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl shrink-0 ${g.score >= 80 ? 'bg-emerald-100 text-emerald-600' : g.score <= 60 ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                                <span className="text-2xl font-black tracking-tighter">{g.score}</span>
+                                <span className="text-[8px] font-bold uppercase opacity-60">%</span>
+                            </div>
                         </div>
+                        
                         {isRetakeNeeded && g.retakeDeadline && g.status !== 'retake_submitted' && (
-                            <div className="mt-2 pt-3 border-t border-amber-100 flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1 text-amber-600"><Timer size={14} /><span className="text-[10px] font-black uppercase flex items-center gap-1">Qoldi: <CountdownTimer deadline={g.retakeDeadline} /></span></div>
-                                <button onClick={() => submitRetake(g.id)} disabled={daysLeft !== null && daysLeft <= 0} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${(daysLeft !== null && daysLeft <= 0) ? 'bg-slate-200 text-slate-400' : 'bg-amber-500 text-white shadow-lg shadow-amber-200 active:scale-95'}`}>Qayta Topshirish</button>
+                            <div className="mt-1 pt-2 border-t border-amber-100 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1 text-amber-600"><Timer size={12} /><span className="text-[9px] font-black uppercase flex items-center gap-1">Qoldi: <CountdownTimer deadline={g.retakeDeadline} /></span></div>
+                                <button onClick={() => submitRetake(g.id)} disabled={daysLeft !== null && daysLeft <= 0} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${(daysLeft !== null && daysLeft <= 0) ? 'bg-slate-200 text-slate-400' : 'bg-amber-500 text-white shadow-lg shadow-amber-200 active:scale-95'}`}>Topshirish</button>
                             </div>
                         )}
-                        {g.status === 'retake_submitted' && <div className="mt-1 pt-2 border-t border-indigo-50 flex items-center gap-2 text-indigo-500"><CheckCircle2 size={14}/> <span className="text-[10px] font-black uppercase">Tekshirilmoqda</span></div>}
+                        {g.status === 'retake_submitted' && <div className="mt-1 pt-2 border-t border-indigo-50 flex items-center gap-2 text-indigo-500"><CheckCircle2 size={12}/> <span className="text-[9px] font-black uppercase">Tekshirilmoqda</span></div>}
                     </div>
                     );
                 })}
@@ -706,11 +734,10 @@ const StudentDashboard = () => {
         </div>
       </div>
       
-      {/* --- FLOATING BOTTOM NAVIGATION (FIXED) --- */}
+      {/* FLOATING NAV */}
       <div className="md:hidden fixed bottom-2 left-1/2 transform -translate-x-1/2 w-[95%] max-w-md z-[999]">
         <div className="relative bg-white/90 backdrop-blur-xl border border-slate-200/60 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] px-1 py-2">
           <div className="flex justify-between items-center relative">
-            {/* Dynamic Slider */}
             {activeStyle && (
                 <div className="absolute top-0 h-full transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1)" style={{ width: '20%', left: `${activeIndex * 20}%` }}>
                 <div className="w-14 h-full mx-auto relative flex flex-col items-center">
@@ -740,7 +767,7 @@ const StudentDashboard = () => {
         </div>
       </div>
 
-      {/* 🔥 CHIQISHNI TASDIQLASH MODALI */}
+      {/* MODAL */}
       {isExitModalOpen && (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-[2rem] p-6 w-full max-w-xs shadow-2xl border border-white/20 animate-in zoom-in-95 duration-200">
@@ -753,18 +780,8 @@ const StudentDashboard = () => {
             </div>
             
             <div className="flex gap-3">
-              <button 
-                onClick={() => setIsExitModalOpen(false)} 
-                className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors active:scale-95"
-              >
-                Yo'q
-              </button>
-              <button 
-                onClick={() => App.exitApp()} 
-                className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
-              >
-                Ha, Chiqish
-              </button>
+              <button onClick={() => setIsExitModalOpen(false)} className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors active:scale-95">Yo'q</button>
+              <button onClick={() => App.exitApp()} className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">Ha, Chiqish</button>
             </div>
           </div>
         </div>

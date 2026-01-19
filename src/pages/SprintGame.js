@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Home, Heart, Flame, Loader2, Clock, Zap, AlertCircle, RefreshCw 
 } from 'lucide-react';
@@ -11,24 +11,32 @@ const SprintGame = () => {
   const [loading, setLoading] = useState(true);
   const [gameData, setGameData] = useState(null);
   const [totalXp, setTotalXp] = useState(0);
-  const [sessionXp, setSessionXp] = useState(0); // 🔥 Session XP
+  const [sessionXp, setSessionXp] = useState(0);
 
-  // Gameplay
+  // Gameplay States
   const [gameState, setGameState] = useState('menu');
   const [selectedLevel, setSelectedLevel] = useState(null);
-  
   const [questionQueue, setQuestionQueue] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-
   const [currentQuestion, setCurrentQuestion] = useState(null);
+  
+  // Timer & Logic
   const [timeLeft, setTimeLeft] = useState(10);
+  const [baseTime, setBaseTime] = useState(10); // 🔥 Asosiy vaqtni saqlash uchun
+  
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
   const [streak, setStreak] = useState(0);
   const [feedback, setFeedback] = useState(null);
-  const [showXpAnim, setShowXpAnim] = useState(false); // 🔥 XP Animatsiya
+  
+  // Animatsiya
+  const [showXpAnim, setShowXpAnim] = useState(false);
+  
+  // Refs (Performance uchun muhim)
   const timerRef = useRef(null);
+  const answerTimeoutRef = useRef(null);
 
+  // 1. Initial Data Fetch
   useEffect(() => {
     const initGame = async () => {
       const user = auth.currentUser;
@@ -37,23 +45,41 @@ const SprintGame = () => {
         const gameRef = doc(db, "games", "sprint");
         const gameSnap = await getDoc(gameRef);
         if (gameSnap.exists()) setGameData(gameSnap.data());
+        
         const studentRef = doc(db, "students", user.uid);
-        onSnapshot(studentRef, (docSnap) => {
+        const unsub = onSnapshot(studentRef, (docSnap) => {
           if (docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
         });
+        return () => unsub();
       } catch (error) { console.error(error); } finally { setLoading(false); }
     };
     initGame();
+
+    // Cleanup on unmount
+    return () => {
+        clearInterval(timerRef.current);
+        clearTimeout(answerTimeoutRef.current);
+    };
   }, []);
 
+  // 2. Timer Logic (Optimized)
   useEffect(() => {
-    if (gameState === 'playing' && timeLeft > 0) {
-      timerRef.current = setTimeout(() => setTimeLeft(prev => prev - 0.1), 100);
-    } else if (timeLeft <= 0 && gameState === 'playing') {
-      handleWrong();
+    if (gameState === 'playing' && !feedback) {
+        timerRef.current = setInterval(() => {
+            setTimeLeft((prev) => {
+                if (prev <= 0.1) {
+                    clearInterval(timerRef.current);
+                    handleWrong(true); // Vaqt tugadi
+                    return 0;
+                }
+                return prev - 0.1;
+            });
+        }, 100);
+    } else {
+        clearInterval(timerRef.current);
     }
-    return () => clearTimeout(timerRef.current);
-  }, [timeLeft, gameState]);
+    return () => clearInterval(timerRef.current);
+  }, [gameState, feedback]); // feedback o'zgarganda timer to'xtaydi
 
   const shuffleArray = (array) => {
     let arr = [...array];
@@ -71,12 +97,20 @@ const SprintGame = () => {
       const shuffledQs = shuffleArray(level.questions);
       setQuestionQueue(shuffledQs);
       setCurrentIndex(0);
-
       setSelectedLevel(levelKey); 
-      setScore(0); setLives(3); setStreak(0); setSessionXp(0); 
-      setGameState('playing');
-      setTimeLeft(level.baseTime || 10);
       
+      // Reset Stats
+      setScore(0); 
+      setLives(3); 
+      setStreak(0); 
+      setSessionXp(0); 
+      
+      // Set Time
+      const time = level.baseTime || 10;
+      setBaseTime(time);
+      setTimeLeft(time);
+      
+      setGameState('playing');
       loadQuestion(shuffledQs[0]);
   };
 
@@ -84,11 +118,15 @@ const SprintGame = () => {
       if(!q) return; 
       const shuffledOptions = shuffleArray(q.options);
       setCurrentQuestion({ ...q, options: shuffledOptions });
+      
+      // 🔥 MUHIM: Har bir yangi savolda vaqtni to'liq qaytaramiz
+      setTimeLeft(baseTime); 
+      
       setFeedback(null);
       setShowXpAnim(false);
   };
 
-  const nextQuestion = () => {
+  const nextQuestion = useCallback(() => {
       const nextIdx = currentIndex + 1;
       if (nextIdx < questionQueue.length) {
           setCurrentIndex(nextIdx);
@@ -96,37 +134,53 @@ const SprintGame = () => {
       } else {
           setGameState('game_over'); 
       }
-  }
+  }, [currentIndex, questionQueue, baseTime]);
 
   const handleAnswer = (option) => {
-      if (feedback) return;
+      if (feedback) return; // Spam click oldini olish
+
       if (option === currentQuestion.a) {
+          // --- TO'G'RI JAVOB ---
           setFeedback('correct'); 
-          setScore(s=>s+1); 
-          setStreak(s=>s+1);
-          setTimeLeft(prev => Math.min(gameData.levels[selectedLevel].baseTime || 10, prev + 2));
+          setScore(s => s + 1); 
+          setStreak(s => s + 1);
           
-          // 🔥 XP Reward & Animation
+          // XP berish
           const user = auth.currentUser;
           const reward = gameData.levels[selectedLevel].xpReward || 5; 
           setSessionXp(prev => prev + reward);
           setShowXpAnim(true);
 
-          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) });
+          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) }).catch(console.error);
           
-          setTimeout(() => nextQuestion(), 600); // 400 dan 600 ga oshirildi (animatsiya ko'rinishi uchun)
+          // Keyingi savolga o'tish (600ms dan keyin)
+          answerTimeoutRef.current = setTimeout(() => nextQuestion(), 600);
       } else {
-          handleWrong();
+          // --- XATO JAVOB ---
+          handleWrong(false);
       }
   };
 
-  const handleWrong = () => {
-      setFeedback('wrong'); setLives(l=>l-1); setStreak(0);
-      if (lives <= 1) setTimeout(() => setGameState('game_over'), 500);
-      else setTimeout(() => {
-          setTimeLeft(gameData.levels[selectedLevel].baseTime || 10);
-          nextQuestion(); 
-      }, 500);
+  const handleWrong = (isTimeOut = false) => {
+      if(gameState !== 'playing') return; // Agar o'yin tugagan bo'lsa, qaytish
+
+      setFeedback(isTimeOut ? 'timeout' : 'wrong'); 
+      setLives(l => {
+          const newLives = l - 1;
+          if (newLives <= 0) {
+              // Game Over
+              answerTimeoutRef.current = setTimeout(() => setGameState('game_over'), 800);
+              return 0;
+          }
+          return newLives;
+      });
+      setStreak(0);
+
+      if (lives > 1) { // Agar jon qolgan bo'lsa
+          answerTimeoutRef.current = setTimeout(() => {
+              nextQuestion(); 
+          }, 800);
+      }
   };
 
   if (loading) return <div className="h-[100dvh] flex items-center justify-center bg-slate-950"><Loader2 className="animate-spin text-indigo-500"/></div>;
@@ -168,7 +222,7 @@ const SprintGame = () => {
   // --- GAME OVER UI ---
   if(gameState === 'game_over') {
       return (
-          <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950 p-6 text-center text-white">
+          <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-950 p-6 text-center text-white animate-in zoom-in-95 duration-300">
               <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center mb-6 animate-bounce">
                   <AlertCircle size={48} className="text-rose-500"/>
               </div>
@@ -191,7 +245,10 @@ const SprintGame = () => {
       <div className="fixed inset-0 flex flex-col bg-slate-950 text-white font-sans overflow-hidden touch-manipulation overscroll-contain">
           {/* Timer Bar */}
           <div className="h-2 w-full bg-slate-900 shrink-0">
-             <div className={`h-full transition-all duration-100 ease-linear ${timeLeft < 3 ? 'bg-rose-500' : 'bg-yellow-400'}`} style={{ width: `${(timeLeft / (gameData.levels[selectedLevel].baseTime || 10)) * 100}%` }} />
+             <div 
+                className={`h-full transition-all duration-100 ease-linear ${timeLeft < 3 ? 'bg-rose-500' : 'bg-yellow-400'}`} 
+                style={{ width: `${(timeLeft / baseTime) * 100}%` }} 
+             />
           </div>
 
           <div className="flex justify-between items-center p-4 shrink-0">
@@ -200,7 +257,7 @@ const SprintGame = () => {
               <div className="flex items-center gap-1 text-orange-500 font-bold"><Flame size={20} className={streak>5?'animate-bounce':''}/>{streak}</div>
           </div>
 
-          {/* 🔥 XP Animation Overlay */}
+          {/* XP Animation Overlay */}
           {showXpAnim && (
               <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
                   <div className="animate-float-up flex flex-col items-center">
@@ -211,9 +268,11 @@ const SprintGame = () => {
 
           <div className="flex-1 flex flex-col justify-center px-6 pb-10 max-w-md mx-auto w-full overflow-y-auto">
               <div className={`w-full bg-slate-900 p-8 rounded-[2rem] border-2 text-center mb-8 transition-colors duration-200 shadow-xl
-                 ${feedback==='correct'?'border-emerald-500 bg-emerald-500/10':feedback==='wrong'?'border-rose-500 bg-rose-500/10':'border-slate-800'}`}>
+                 ${feedback==='correct'?'border-emerald-500 bg-emerald-500/10':feedback==='wrong' || feedback==='timeout'?'border-rose-500 bg-rose-500/10':'border-slate-800'}`}>
                   <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mb-4">SAVOL ({currentIndex + 1}/{questionQueue.length})</p>
-                  <h2 className="text-2xl sm:text-3xl font-bold leading-tight">{currentQuestion?.q}</h2>
+                  <h2 className="text-2xl sm:text-3xl font-bold leading-tight">
+                      {feedback === 'timeout' ? "VAQT TUGADI!" : currentQuestion?.q}
+                  </h2>
               </div>
 
               <div className="flex flex-col gap-3 w-full">
@@ -227,7 +286,7 @@ const SprintGame = () => {
                                 ? 'bg-slate-800 border-slate-950 hover:bg-slate-700' 
                                 : opt === currentQuestion.a 
                                     ? 'bg-emerald-500 border-emerald-700 text-white' 
-                                    : feedback === 'wrong' && opt !== currentQuestion.a 
+                                    : (feedback === 'wrong' && opt !== currentQuestion.a) || feedback === 'timeout'
                                         ? 'bg-slate-800 opacity-50 border-slate-900' 
                                         : 'bg-slate-800'}`}
                       >

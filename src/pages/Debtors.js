@@ -5,21 +5,30 @@ import { useNavigate } from 'react-router-dom';
 import { 
   AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Loader2, 
   AlertTriangle, BookOpen, Calendar, RefreshCw,
-  AlertOctagon, XCircle, ArrowRight, Search, Timer
+  AlertOctagon, XCircle, ArrowRight, Search, Timer, Flame // 🔥 Flame ikonkasini qo'shdik
 } from 'lucide-react';
 
 // --- HELPER: COUNTDOWN TIMER ---
 const CountdownTimer = ({ deadline }) => {
   const [timeLeft, setTimeLeft] = useState("");
+  const [isExpired, setIsExpired] = useState(false);
+
   useEffect(() => {
     if (!deadline) return;
     const calculateTime = () => {
       const now = new Date();
       const target = new Date(deadline); 
       const diff = target - now;
-      if (diff <= 0) { setTimeLeft("TUGADI"); return; }
+      
+      if (diff <= 0) { 
+          setTimeLeft("TUGADI"); 
+          setIsExpired(true);
+          return; 
+      }
+      
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      
       if (days === 0) {
           const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
           setTimeLeft(`${hours}h ${minutes}m`);
@@ -31,8 +40,9 @@ const CountdownTimer = ({ deadline }) => {
     const timer = setInterval(calculateTime, 60000); 
     return () => clearInterval(timer);
   }, [deadline]);
+
   return (
-    <span className="flex items-center gap-1 font-mono font-bold text-[9px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded ml-1 whitespace-nowrap tracking-tight">
+    <span className={`flex items-center gap-1 font-mono font-bold text-[9px] px-1.5 py-0.5 rounded ml-1 whitespace-nowrap tracking-tight border ${isExpired ? 'text-rose-600 bg-rose-50 border-rose-100' : 'text-amber-600 bg-amber-50 border-amber-100'}`}>
        <Timer size={10} /> {timeLeft}
     </span>
   );
@@ -46,6 +56,9 @@ const Debtors = () => {
   const [searchQuery, setSearchQuery] = useState(''); 
   const [expandedGroup, setExpandedGroup] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  
+  // 🔥🔥🔥 YANGI STATE: Shoshilinch qarzdorlar ro'yxati
+  const [urgentList, setUrgentList] = useState([]);
 
   useEffect(() => {
     const loadDebtors = async (forceRefresh = false) => {
@@ -60,6 +73,7 @@ const Debtors = () => {
             const parsed = JSON.parse(cachedData);
             setReportData(parsed);
             setFilteredData(parsed);
+            processUrgentDebts(parsed); // 🔥 Keshdan olinganda ham hisoblash
             setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
             setLoading(false);
             return;
@@ -67,12 +81,7 @@ const Debtors = () => {
       }
 
       try {
-        // 🔥🔥🔥 MUHIM O'ZGARISH: ASSISTANT GURUHLARINI HAM OLISH 🔥🔥🔥
-        
-        // 1. Asosiy o'qituvchi bo'lgan guruhlar
         const qMainGroups = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-        
-        // 2. Yordamchi o'qituvchi bo'lgan guruhlar
         const qAssistGroups = query(collection(db, "groups"), where("assistantTeacherId", "==", user.uid));
         
         const [mainSnap, assistSnap] = await Promise.all([
@@ -80,11 +89,9 @@ const Debtors = () => {
             getDocs(qAssistGroups)
         ]);
 
-        // Ikkala natijani birlashtiramiz
         const mainGroups = mainSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         const assistGroups = assistSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        // Dublikatlarni oldini olish (ID bo'yicha filter)
         const allRawGroups = [...mainGroups, ...assistGroups];
         const groups = allRawGroups.filter((group, index, self) =>
             index === self.findIndex((t) => t.id === group.id)
@@ -99,7 +106,7 @@ const Debtors = () => {
                 getDocs(query(collection(db, "grades"), where("groupId", "==", group.id)))
             ]);
 
-            const students = studSnap.docs.map(d => ({ id: d.id, name: d.data().name }));
+            const students = studSnap.docs.map(d => ({ id: d.id, name: d.data().name, avatar: d.data().avatarSeed }));
             const pastLessons = lessonSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => l.date <= today && !l.isDelayed); 
             const grades = gradeSnap.docs.map(d => d.data());
 
@@ -129,6 +136,7 @@ const Debtors = () => {
                         if (grade?.retakeDeadline) {
                              const d = grade.retakeDeadline.toDate ? grade.retakeDeadline.toDate() : new Date(grade.retakeDeadline);
                              deadlineStr = d.toISOString();
+                             // Eng yaqin muddatni olish
                              if (!lessonDeadline || d < new Date(lessonDeadline)) lessonDeadline = deadlineStr;
                         }
 
@@ -154,7 +162,11 @@ const Debtors = () => {
                 });
 
                 if (problematicLessons.length > 0) {
-                    groupDebtors.push({ studentId: student.id, studentName: student.name, debts: problematicLessons });
+                    groupDebtors.push({ 
+                        studentId: student.id, 
+                        studentName: student.name, 
+                        debts: problematicLessons 
+                    });
                 }
             });
 
@@ -167,6 +179,8 @@ const Debtors = () => {
 
         setReportData(finalData);
         setFilteredData(finalData);
+        processUrgentDebts(finalData); // 🔥 Urgentlarni hisoblash
+
         localStorage.setItem('debtorsCachev2', JSON.stringify(finalData));
         localStorage.setItem('debtorsTimev2', new Date().getTime().toString());
         setLastUpdated(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
@@ -176,6 +190,46 @@ const Debtors = () => {
 
     loadDebtors();
   }, []);
+
+  // 🔥🔥🔥 YANGI FUNKSIYA: 2 kun qolganlarni ajratib olish 🔥🔥🔥
+  const processUrgentDebts = (data) => {
+      const urgent = [];
+      const twoDaysInMs = 2 * 24 * 60 * 60 * 1000;
+      const now = new Date();
+
+      data.forEach(group => {
+          group.debtors.forEach(student => {
+              student.debts.forEach(debt => {
+                  debt.tasks.forEach(task => {
+                      // Faqat deadline bor va (score < 60) bo'lganlar
+                      if (task.deadline && task.status === 'low') {
+                          const deadlineDate = new Date(task.deadline);
+                          const diff = deadlineDate - now;
+
+                          // Agar 2 kundan kam qolgan bo'lsa yoki vaqt o'tib ketgan bo'lsa
+                          if (diff <= twoDaysInMs) {
+                              urgent.push({
+                                  studentName: student.studentName,
+                                  studentId: student.studentId,
+                                  groupName: group.groupName,
+                                  groupId: group.groupId,
+                                  lessonId: debt.lessonId,
+                                  taskName: task.name,
+                                  deadline: task.deadline,
+                                  score: task.score,
+                                  diff: diff // Saralash uchun kerak bo'ladi
+                              });
+                          }
+                      }
+                  });
+              });
+          });
+      });
+
+      // Eng oz vaqt qolganlarni yuqoriga chiqaramiz
+      urgent.sort((a, b) => a.diff - b.diff);
+      setUrgentList(urgent);
+  };
 
   useEffect(() => {
       if (!searchQuery.trim()) {
@@ -246,7 +300,50 @@ const Debtors = () => {
          </div>
        </div>
 
-       {/* CONTENT */}
+       {/* 🔥🔥🔥 SHOSHILINCH (URGENT) QATORI 🔥🔥🔥 */}
+       {urgentList.length > 0 && (
+           <div className="mb-6 animate-in fade-in slide-in-from-top-4 duration-500">
+               <div className="flex items-center gap-2 mb-3">
+                   <Flame size={18} className="text-orange-500 animate-pulse" />
+                   <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Critical Retakes (&lt; 48h)</h2>
+                   <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{urgentList.length}</span>
+               </div>
+               
+               {/* Gorizontal scroll bo'ladigan ro'yxat */}
+               <div className="flex overflow-x-auto gap-3 pb-4 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide snap-x">
+                   {urgentList.map((item, index) => (
+                       <div 
+                           key={index}
+                           onClick={() => navigateToStudent(item.groupId, item.studentId, item.lessonId)}
+                           className="snap-center min-w-[260px] bg-white p-4 rounded-2xl border-l-4 border-l-orange-500 border-y border-r border-slate-100 shadow-lg shadow-orange-100/50 active:scale-95 transition-transform cursor-pointer relative overflow-hidden"
+                       >
+                           {/* Background effect */}
+                           <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+
+                           <div className="flex justify-between items-start mb-2 relative z-10">
+                               <div>
+                                   <h4 className="font-black text-slate-800 text-sm truncate w-40">{item.studentName}</h4>
+                                   <p className="text-[10px] font-bold text-slate-400 uppercase">{item.groupName}</p>
+                               </div>
+                               <div className="bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 flex flex-col items-center">
+                                   <span className="text-xs font-black text-orange-600">{item.score}%</span>
+                               </div>
+                           </div>
+
+                           <div className="flex items-center justify-between relative z-10">
+                               <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                   <AlertCircle size={12} className="text-orange-500 shrink-0"/>
+                                   <span className="text-[10px] font-medium text-slate-600 truncate">{item.taskName}</span>
+                               </div>
+                               <CountdownTimer deadline={item.deadline} />
+                           </div>
+                       </div>
+                   ))}
+               </div>
+           </div>
+       )}
+
+       {/* ASOSIY CONTENT (Guruhlar ro'yxati) */}
        <div className="space-y-4">
          {filteredData.length === 0 ? (
            <div className="bg-white p-10 rounded-[2rem] border border-slate-100 text-center shadow-sm flex flex-col items-center">

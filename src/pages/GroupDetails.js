@@ -11,7 +11,7 @@ import {
   doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc, writeBatch
 } from 'firebase/firestore';
 
-// --- HELPER: HAPTICS ---
+// --- YORDAMCHI: VIBRATSIYA ---
 const triggerHaptic = (type = 'tap') => {
   if (navigator.vibrate) {
     if(type === 'tap') navigator.vibrate(10);
@@ -20,14 +20,14 @@ const triggerHaptic = (type = 'tap') => {
   }
 };
 
-// --- HELPER: AVATAR ---
+// --- YORDAMCHI: AVATAR ---
 const getAvatarUrl = (seed) => {
     const safeSeed = seed || "default";
     const cleanSeed = safeSeed.replace('bot_', '');
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=e0e7ff,d1fae5,ffedd5`;
 };
 
-// --- HELPER: UUID ---
+// --- YORDAMCHI: ID GENERATOR ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const GroupDetails = () => {
@@ -36,47 +36,49 @@ const GroupDetails = () => {
   const location = useLocation();
   const highlightRef = useRef(null); 
   
-  // Data State
+  // Ma'lumotlar
   const [groupName, setGroupName] = useState('');
   const [students, setStudents] = useState([]);
   const [lessons, setLessons] = useState([]); 
   const [currentUserRole, setCurrentUserRole] = useState(null);
   
-  // UI State
+  // UI Holati
   const [activeTab, setActiveTab] = useState('students'); 
   const [studentViewMode, setStudentViewMode] = useState('list'); 
   const [modalExpandedMonths, setModalExpandedMonths] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false); 
   
-  // Modals
+  // Modallar
   const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
   const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
   const [isAddLessonOpen, setIsAddLessonOpen] = useState(false); 
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   
-  // Forms
+  // Formalar
   const [addMode, setAddMode] = useState('single'); 
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [targetGroupId, setTargetGroupId] = useState('');
   
-  // Lesson Form
+  // Dars Formasi
   const [lessonTopic, setLessonTopic] = useState('');
   const [lessonDate, setLessonDate] = useState('');
-  const [lessonTasks, setLessonTasks] = useState([{ id: generateId(), text: 'Homework', completed: false }]); 
-  const [isLessonDelayed, setIsLessonDelayed] = useState(false); // 🔥 Delay State
+  const [lessonTasks, setLessonTasks] = useState([{ id: generateId(), text: 'Uyga vazifa', completed: false }]); 
+  const [isLessonDelayed, setIsLessonDelayed] = useState(false); 
   const [editingLesson, setEditingLesson] = useState(null);
   
-  // Grading State
+  // Baholash
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [gradeScores, setGradeScores] = useState({}); 
+  const [initialScores, setInitialScores] = useState({}); 
   const [existingGradeDocs, setExistingGradeDocs] = useState({});
   const [existingGradeObjects, setExistingGradeObjects] = useState({});
   const [savedStatus, setSavedStatus] = useState({}); 
+  const [hasChanges, setHasChanges] = useState(false); 
 
-  // --- FETCHING & CACHING ---
+  // --- MA'LUMOT OLISH ---
   const fetchData = async (forceRefresh = false) => {
     try {
       if (forceRefresh) setRefreshing(true);
@@ -116,7 +118,6 @@ const GroupDetails = () => {
 
       const allGrades = snapGrades.docs.map(d => d.data());
       
-      // 🔥 LESSONS PROCESSING
       const lessonsList = snapLessons.docs.map(d => {
           const data = d.data();
           const normalizedTasks = (data.tasks || []).map(t => {
@@ -127,8 +128,6 @@ const GroupDetails = () => {
           return { id: d.id, ...data, tasks: normalizedTasks };
       });
 
-      // 🔥 CALCULATION LOGIC UPDATE
-      // Faqat active (qoldirilmagan) darslarni olamiz
       const activeLessons = lessonsList.filter(l => !l.isDelayed);
 
       const studentsList = snapStudents.docs.map(d => {
@@ -137,22 +136,17 @@ const GroupDetails = () => {
         
         let totalScore = 0;
         
-        // Agar active darslar bo'lmasa 0
         if (activeLessons.length === 0) {
             return { id: d.id, ...sData, gameXp: sData.gameXp || 0, averageScore: 0 };
         }
 
-        // Har bir active dars uchun bahoni tekshiramiz
         activeLessons.forEach(lesson => {
             const grade = studentGrades.find(g => g.lessonId === lesson.id);
             if (grade) {
                 totalScore += Number(grade.score) || 0;
-            } else {
-                totalScore += 0;
             }
         });
 
-        // O'rtacha = Jami Ball / Jami Active Darslar Soni
         const averageScore = Math.round(totalScore / activeLessons.length);
 
         return { id: d.id, ...sData, gameXp: sData.gameXp || 0, averageScore: averageScore };
@@ -245,8 +239,8 @@ const GroupDetails = () => {
       setEditingLesson(null); 
       setLessonTopic('');
       setLessonDate('');
-      setLessonTasks([{ id: generateId(), text: 'Homework', completed: false }]);
-      setIsLessonDelayed(false); // Reset delay
+      setLessonTasks([{ id: generateId(), text: 'Uyga vazifa', completed: false }]);
+      setIsLessonDelayed(false); 
       setIsAddLessonOpen(true);
   };
 
@@ -255,13 +249,13 @@ const GroupDetails = () => {
       const tasksWithIds = (lesson.tasks || []).map(t => 
         t.id ? t : { ...t, id: generateId() }
       );
-      if (tasksWithIds.length === 0) tasksWithIds.push({ id: generateId(), text: 'Homework', completed: false });
+      if (tasksWithIds.length === 0) tasksWithIds.push({ id: generateId(), text: 'Uyga vazifa', completed: false });
       
       setEditingLesson({ ...lesson, tasks: tasksWithIds }); 
       setLessonTopic(lesson.topic);
       setLessonDate(lesson.date);
       setLessonTasks(tasksWithIds);
-      setIsLessonDelayed(lesson.isDelayed || false); // 🔥 Load delay status
+      setIsLessonDelayed(lesson.isDelayed || false); 
       setIsAddLessonOpen(true);
   };
 
@@ -279,7 +273,7 @@ const GroupDetails = () => {
                   topic: lessonTopic, 
                   date: lessonDate, 
                   tasks: cleanTasks,
-                  isDelayed: isLessonDelayed // 🔥 Update delay status
+                  isDelayed: isLessonDelayed 
               });
 
               for (const newTask of cleanTasks) {
@@ -300,7 +294,7 @@ const GroupDetails = () => {
                   date: lessonDate, 
                   tasks: cleanTasks, 
                   createdAt: serverTimestamp(),
-                  isDelayed: isLessonDelayed // 🔥 Save delay status
+                  isDelayed: isLessonDelayed 
               });
           }
           
@@ -319,9 +313,11 @@ const GroupDetails = () => {
     triggerHaptic();
     setSelectedStudent(student); 
     setGradeScores({});
+    setInitialScores({}); 
     setExistingGradeDocs({});
     setExistingGradeObjects({});
     setSavedStatus({});
+    setHasChanges(false); 
     setIsGradeModalOpen(true);
 
     const q = query(collection(db, "grades"), where("studentId", "==", student.id));
@@ -340,6 +336,7 @@ const GroupDetails = () => {
     });
 
     setGradeScores(scores);
+    setInitialScores({...scores});
     setExistingGradeDocs(docs);
     setExistingGradeObjects(objs);
     
@@ -348,14 +345,89 @@ const GroupDetails = () => {
     setModalExpandedMonths(allMonths);
   };
 
+  const handleScoreChange = (lessonId, taskText, value) => {
+      const key = `${lessonId}_${taskText}`;
+      
+      const newScores = { ...gradeScores, [key]: value };
+      setGradeScores(newScores);
+
+      let isChanged = false;
+      const initialVal = initialScores[key] || '';
+      if (String(value) !== String(initialVal)) {
+          isChanged = true;
+      }
+      
+      if (!isChanged) {
+          for (let k in newScores) {
+              const init = initialScores[k] || '';
+              if (String(newScores[k]) !== String(init)) {
+                  isChanged = true;
+                  break;
+              }
+          }
+      }
+      
+      setHasChanges(isChanged);
+
+      if (savedStatus[key]) {
+          const newStatus = { ...savedStatus };
+          delete newStatus[key];
+          setSavedStatus(newStatus);
+      }
+  };
+
+  // 🔥 YANGI: Bahoni o'chirish funksiyasi
+  const handleDeleteGrade = async (lessonId, taskName) => {
+      triggerHaptic('error');
+      
+      const key = `${lessonId}_${taskName}`;
+      const docId = existingGradeDocs[key];
+
+      // Agar bazada bo'lsa (haqiqiy o'chirish)
+      if (docId) {
+          if(window.confirm("Rostdan ham bu bahoni o'chirib yubormoqchimisiz?")) {
+              try {
+                  await deleteDoc(doc(db, "grades", docId));
+                  
+                  // Local state update
+                  const newScores = { ...gradeScores };
+                  delete newScores[key];
+                  setGradeScores(newScores);
+                  
+                  const newDocs = { ...existingGradeDocs };
+                  delete newDocs[key];
+                  setExistingGradeDocs(newDocs);
+
+                  const newInitials = { ...initialScores };
+                  delete newInitials[key];
+                  setInitialScores(newInitials);
+
+                  triggerHaptic('success');
+                  fetchData(true); // Orqa fonda yangilash
+              } catch (e) {
+                  alert("Xatolik: " + e.message);
+              }
+          }
+      } else {
+          // Agar hali saqlanmagan bo'lsa (shunchaki inputni tozalash)
+          handleScoreChange(lessonId, taskName, '');
+      }
+  };
+
   const handleSaveAllGrades = async (e) => {
     e.preventDefault();
+    if (!hasChanges) return; 
+
     triggerHaptic('tap');
     const newSavedStatus = {};
 
     try {
       const entries = Object.entries(gradeScores);
+      const batch = writeBatch(db); 
+      let changeCount = 0;
+
       for (const [key, scoreVal] of entries) {
+         if (String(scoreVal) === String(initialScores[key])) continue;
          if (scoreVal === '' || scoreVal === null) continue;
 
          const firstUnderscore = key.indexOf('_');
@@ -368,9 +440,8 @@ const GroupDetails = () => {
          const eId = existingGradeDocs[key];
          const oldData = existingGradeObjects[key];
 
-         if (oldData && oldData.score === scoreNum) continue;
-
          let gradeData = { score: scoreNum, date: serverTimestamp(), status: 'active', retakeDeadline: null };
+         
          if (scoreNum < 60) {
             const deadline = new Date();
             deadline.setDate(deadline.getDate() + 7);
@@ -383,35 +454,34 @@ const GroupDetails = () => {
          }
 
          if (eId) {
-             await updateDoc(doc(db, "grades", eId), gradeData);
+             const gradeRef = doc(db, "grades", eId);
+             batch.update(gradeRef, gradeData);
          } else {
-             const newDoc = await addDoc(collection(db, "grades"), {
+             const newRef = doc(collection(db, "grades"));
+             batch.set(newRef, {
                  studentId: selectedStudent.id, studentName: selectedStudent.name,
                  groupId, lessonId, taskType, comment: topic, ...gradeData
              });
-             existingGradeDocs[key] = newDoc.id;
          }
          
          newSavedStatus[key] = true;
-         existingGradeObjects[key] = { ...oldData, ...gradeData, score: scoreNum };
+         changeCount++;
       }
       
-      setSavedStatus(newSavedStatus);
-      triggerHaptic('success');
-      setTimeout(() => setSavedStatus({}), 2000);
-      fetchData(true); 
+      if (changeCount > 0) {
+          await batch.commit();
+          setSavedStatus(newSavedStatus);
+          triggerHaptic('success');
+          
+          setTimeout(() => {
+              setIsGradeModalOpen(false);
+              fetchData(true);
+          }, 500); 
+      } else {
+          setIsGradeModalOpen(false); 
+      }
 
     } catch (er) { alert("Xatolik: " + er.message); }
-  };
-
-  const handleScoreChange = (lessonId, taskText, value) => {
-      const key = `${lessonId}_${taskText}`;
-      setGradeScores(prev => ({ ...prev, [key]: value }));
-      if (savedStatus[key]) {
-          const newStatus = { ...savedStatus };
-          delete newStatus[key];
-          setSavedStatus(newStatus);
-      }
   };
 
   if (loading && !isAddStudentOpen && !isMoveModalOpen && !isGradeModalOpen && !isAddLessonOpen) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40}/></div>;
@@ -419,18 +489,18 @@ const GroupDetails = () => {
   const displayedStudents = getDisplayedStudents();
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans touch-manipulation pb-20">
+    <div className="min-h-screen bg-slate-50 font-sans touch-manipulation pb-20 md:ml-[300px] transition-all duration-300">
       
       {/* --- HEADER --- */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-3 shadow-sm">
+      <header className="fixed top-0 right-0 left-0 md:left-[300px] z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-3 shadow-sm transition-all duration-300">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
                 <button onClick={() => navigate('/')} className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors shrink-0 active:scale-95"><ArrowLeft size={20}/></button>
                 <div className="min-w-0">
                     <h1 className="text-lg font-black text-slate-800 tracking-tight uppercase italic truncate w-48 sm:w-auto">{groupName}</h1>
                     <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded uppercase">Classroom</span>
-                        <span className="text-[10px] font-bold text-slate-400">{students.length} students</span>
+                        <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded uppercase">Sinfxona</span>
+                        <span className="text-[10px] font-bold text-slate-400">{students.length} o'quvchi</span>
                     </div>
                 </div>
             </div>
@@ -452,14 +522,15 @@ const GroupDetails = () => {
         {/* --- TABS --- */}
         <div className="flex p-1 bg-slate-100 rounded-xl mt-4">
             <button onClick={() => { triggerHaptic(); setActiveTab('students'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>
-                <Users size={14}/> Students
+                <Users size={14}/> O'quvchilar
             </button>
             <button onClick={() => { triggerHaptic(); setActiveTab('journal'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'journal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>
-                <BookOpen size={14}/> Journal
+                <BookOpen size={14}/> Jurnal
             </button>
         </div>
       </header>
 
+      {/* --- CONTENT --- */}
       <div className="pt-[140px] px-4 sm:px-6 max-w-4xl mx-auto space-y-6">
         
         {/* STUDENTS TAB */}
@@ -471,7 +542,7 @@ const GroupDetails = () => {
                         <button onClick={() => setStudentViewMode('leaderboard')} className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase transition-all ${studentViewMode === 'leaderboard' ? 'bg-yellow-100 text-yellow-600' : 'text-slate-400'}`}><Trophy size={16}/></button>
                     </div>
                     {currentUserRole === 'admin' && (
-                        <button onClick={() => setIsAddStudentOpen(true)} className="flex items-center gap-1 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><UserPlus size={14}/> Add</button>
+                        <button onClick={() => setIsAddStudentOpen(true)} className="flex items-center gap-1 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><UserPlus size={14}/> Qo'shish</button>
                     )}
                 </div>
 
@@ -506,7 +577,7 @@ const GroupDetails = () => {
                                <span className="text-sm font-bold text-slate-800 truncate">{s.name}</span>
                                <div className="flex items-center gap-3 mt-1">
                                   <div className="flex items-center gap-1 text-[10px] text-indigo-500 font-black uppercase"><Zap size={10} className="fill-indigo-500"/>{s.gameXp} XP</div>
-                                  <div className={`flex items-center gap-1 text-[10px] font-black uppercase ${scoreColor}`}><Percent size={10} />{s.averageScore}% Avg</div>
+                                  <div className={`flex items-center gap-1 text-[10px] font-black uppercase ${scoreColor}`}><Percent size={10} />{s.averageScore}% O'rtacha</div>
                                </div>
                            </div>
                         </div>
@@ -527,8 +598,8 @@ const GroupDetails = () => {
         {activeTab === 'journal' && (
             <div className="animate-in slide-in-from-right-4 duration-300 pb-24">
                 <div className="flex justify-between items-center mb-4 px-1">
-                    <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Timeline</h2>
-                    <button onClick={handleOpenNewLesson} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><Plus size={14}/> New Lesson</button>
+                    <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Darslar Tarixi</h2>
+                    <button onClick={handleOpenNewLesson} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><Plus size={14}/> Yangi Dars</button>
                 </div>
 
                 <div className="space-y-6 relative">
@@ -546,7 +617,7 @@ const GroupDetails = () => {
                                             <div>
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="text-[10px] font-black text-indigo-500 uppercase">{l.date}</span>
-                                                    {l.isDelayed && <span className="text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded flex items-center gap-1"><Clock size={10}/> Delayed</span>}
+                                                    {l.isDelayed && <span className="text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded flex items-center gap-1"><Clock size={10}/> Qoldirildi</span>}
                                                 </div>
                                                 <h3 className="text-sm font-bold text-slate-800 leading-tight mb-2">{l.topic}</h3>
                                                 <div className="flex flex-wrap gap-1.5">
@@ -571,21 +642,29 @@ const GroupDetails = () => {
         )}
       </div>
 
-      {/* GRADE MODAL */}
+      {/* GRADE MODAL - 🔥 O'ZGARTIRILDI: h-[95dvh] va Drag Handle */}
       {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsGradeModalOpen(false)}></div>
-          <div className="bg-white w-full max-w-lg h-[80dvh] sm:h-[80vh] rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
+          {/* 🔥 h-[95dvh] mobilda deyarli to'liq ekran */}
+          <div className="bg-white w-full max-w-lg h-[95dvh] sm:h-[85vh] rounded-t-[2rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
+            
+            {/* 🔥 Mobile Drag Handle */}
+            <div className="w-full flex justify-center pt-3 pb-1 bg-slate-900 sm:hidden">
+                <div className="w-12 h-1.5 bg-white/20 rounded-full"></div>
+            </div>
+
             <div className="p-5 bg-slate-900 text-white shrink-0 flex items-center justify-between relative overflow-hidden z-50">
                 <div className="flex items-center gap-3 relative z-10">
                     <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 overflow-hidden"><img src={getAvatarUrl(selectedStudent.avatarSeed || selectedStudent.name)} className="w-full h-full object-cover" alt=""/></div>
                     <div>
                         <h3 className="text-lg font-black leading-none">{selectedStudent.name}</h3>
-                        <p className="text-indigo-300 text-[10px] font-black uppercase tracking-widest mt-1">Grading Portal</p>
+                        <p className="text-indigo-300 text-[10px] font-black uppercase tracking-widest mt-1">Baholash Paneli</p>
                     </div>
                 </div>
                 <button onClick={() => setIsGradeModalOpen(false)} className="relative z-10 p-2 bg-white/10 rounded-full hover:bg-white/20"><X size={20}/></button>
             </div>
+            
             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50">
                <form onSubmit={handleSaveAllGrades} className="space-y-4">
                   {Object.keys(groupedLessons).map((month) => (
@@ -601,7 +680,7 @@ const GroupDetails = () => {
                                           <div className="flex items-center gap-2 mb-2 pl-1">
                                               <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{lesson.date}</span>
                                               <span className="text-xs font-bold text-slate-700 uppercase truncate">{lesson.topic}</span>
-                                              {lesson.isDelayed && <span className="text-[9px] font-bold text-orange-500">(Delayed)</span>}
+                                              {lesson.isDelayed && <span className="text-[9px] font-bold text-orange-500">(Qoldirildi)</span>}
                                           </div>
                                           <div className="grid grid-cols-1 gap-2">
                                               {lesson.tasks?.map((task, idx) => {
@@ -619,16 +698,28 @@ const GroupDetails = () => {
                                                   return (
                                                       <div key={idx} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${borderColor}`}>
                                                           <span className="text-[11px] font-bold text-slate-600 truncate mr-2">{taskName}</span>
-                                                          <div className="relative">
-                                                              <input 
-                                                                ref={isHighlighted ? highlightRef : null}
-                                                                type="number" inputMode="numeric" min="0" max="100" placeholder="-"
-                                                                className="w-16 h-10 text-center text-lg font-black bg-white rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-                                                                value={score}
-                                                                onChange={(e) => handleScoreChange(lesson.id, taskName, e.target.value)}
-                                                                onClick={(e) => e.target.select()}
-                                                              />
-                                                              {isSaved && <div className="absolute -right-6 top-3 text-emerald-500"><Check size={16} strokeWidth={3}/></div>}
+                                                          <div className="flex items-center gap-2">
+                                                              <div className="relative">
+                                                                  <input 
+                                                                    ref={isHighlighted ? highlightRef : null}
+                                                                    type="number" inputMode="numeric" min="0" max="100" placeholder="-"
+                                                                    className="w-16 h-10 text-center text-lg font-black bg-white rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                                                                    value={score}
+                                                                    onChange={(e) => handleScoreChange(lesson.id, taskName, e.target.value)}
+                                                                    onClick={(e) => e.target.select()}
+                                                                  />
+                                                                  {isSaved && <div className="absolute -right-6 top-3 text-emerald-500"><Check size={16} strokeWidth={3}/></div>}
+                                                              </div>
+                                                              {/* 🔥 O'CHIRISH TUGMASI (Faqat baho bo'lsa chiqadi) */}
+                                                              {(score !== '' || existingGradeDocs[key]) && (
+                                                                  <button 
+                                                                    type="button" 
+                                                                    onClick={() => handleDeleteGrade(lesson.id, taskName)}
+                                                                    className="p-2.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 active:scale-90 transition-transform"
+                                                                  >
+                                                                    <Trash2 size={16} />
+                                                                  </button>
+                                                              )}
                                                           </div>
                                                       </div>
                                                   )
@@ -642,9 +733,17 @@ const GroupDetails = () => {
                   ))}
                </form>
             </div>
+            
             <div className="p-4 bg-white border-t border-slate-100 shrink-0 z-50 relative pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
-               <button onClick={handleSaveAllGrades} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-200 active:scale-95 transition-all uppercase text-xs tracking-widest flex items-center justify-center gap-2">
-                  {loading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> Save Changes</>}
+               <button 
+                 onClick={handleSaveAllGrades} 
+                 disabled={loading || !hasChanges} 
+                 className={`w-full py-4 rounded-2xl font-black shadow-xl uppercase text-xs tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95
+                    ${hasChanges 
+                        ? 'bg-indigo-600 text-white shadow-indigo-200 cursor-pointer' 
+                        : 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed'}`}
+               >
+                  {loading ? <Loader2 className="animate-spin" size={18}/> : <><Save size={18}/> O'zgarishlarni Saqlash</>}
                </button>
             </div>
           </div>
@@ -656,24 +755,24 @@ const GroupDetails = () => {
         <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center p-0 sm:p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsAddStudentOpen(false)}></div>
           <div className="bg-white w-full sm:w-auto sm:min-w-[400px] rounded-t-[2.5rem] sm:rounded-[2.5rem] p-6 pb-[calc(2rem+env(safe-area-inset-bottom))] relative z-10 shadow-2xl animate-in slide-in-from-bottom duration-300">
-            <h3 className="text-xl font-black text-slate-800 mb-6 uppercase text-center italic">New Student</h3>
+            <h3 className="text-xl font-black text-slate-800 mb-6 uppercase text-center italic">Yangi O'quvchi</h3>
             
             <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
-               <button onClick={() => setAddMode('single')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Single</button>
-               <button onClick={() => setAddMode('bulk')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'bulk' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Bulk</button>
+               <button onClick={() => setAddMode('single')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'single' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Bittalab</button>
+               <button onClick={() => setAddMode('bulk')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${addMode === 'bulk' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Ko'plab</button>
             </div>
 
             {addMode === 'single' ? (
               <div className="space-y-4">
-                <input type="text" placeholder="Full Name" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" value={newStudentName} onChange={e=>setNewStudentName(e.target.value)} />
-                <input type="email" placeholder="Email (Optional)" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" value={newStudentEmail} onChange={e=>setNewStudentEmail(e.target.value)} />
+                <input type="text" placeholder="Ism Familiya" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" value={newStudentName} onChange={e=>setNewStudentName(e.target.value)} />
+                <input type="email" placeholder="Email (Ixtiyoriy)" className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all" value={newStudentEmail} onChange={e=>setNewStudentEmail(e.target.value)} />
               </div>
             ) : (
               <textarea placeholder="Ali Valiyev, ali@gmail.com" className="w-full h-32 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all resize-none" value={bulkText} onChange={e=>setBulkText(e.target.value)}></textarea>
             )}
 
             <button onClick={addMode === 'single' ? async (e) => { e.preventDefault(); await addDoc(collection(db, "students"), { name: newStudentName, email: newStudentEmail, groupId, joinedAt: serverTimestamp(), gameXp: 0, role: 'student' }); setIsAddStudentOpen(false); setNewStudentName(''); setNewStudentEmail(''); fetchData(true); } : handleBulkAddStudents} className="w-full mt-6 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-lg active:scale-95 transition-transform">
-              {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Add Student'}
+              {loading ? <Loader2 className="animate-spin mx-auto"/> : 'Qo\'shish'}
             </button>
           </div>
         </div>
@@ -686,10 +785,10 @@ const GroupDetails = () => {
           <div className="bg-white w-full max-w-sm h-[80dvh] sm:h-auto rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
             
             <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
-              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase text-center italic">{editingLesson ? "Edit Lesson" : "New Lesson"}</h3>
+              <h3 className="text-xl font-black text-slate-800 mb-2 uppercase text-center italic">{editingLesson ? "Darsni Tahrirlash" : "Yangi Dars"}</h3>
               <form id="lesson-form" className="space-y-4">
                 <input type="date" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonDate} onChange={e => setLessonDate(e.target.value)} />
-                <input type="text" placeholder="Topic Name" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonTopic} onChange={e => setLessonTopic(e.target.value)} />
+                <input type="text" placeholder="Mavzu Nomi" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonTopic} onChange={e => setLessonTopic(e.target.value)} />
                 
                 {/* 🔥 DELAY TOGGLE */}
                 <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
@@ -704,8 +803,8 @@ const GroupDetails = () => {
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center px-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasks / Homework</label>
-                      <button type="button" onClick={() => setLessonTasks([...lessonTasks, { id: generateId(), text: '', completed: false }])} className="text-[10px] font-bold text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded-lg">+ Add</button>
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vazifalar / Uyga vazifa</label>
+                      <button type="button" onClick={() => setLessonTasks([...lessonTasks, { id: generateId(), text: '', completed: false }])} className="text-[10px] font-bold text-indigo-600 uppercase bg-indigo-50 px-2 py-1 rounded-lg">+ Qo'shish</button>
                   </div>
                   {lessonTasks.map((task, idx) => (
                     <div key={idx} className="flex gap-2">
@@ -719,7 +818,7 @@ const GroupDetails = () => {
 
             <div className="p-4 bg-white border-t border-slate-100 shrink-0 z-50 relative pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                 <button onClick={handleSaveLesson} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-200 active:scale-95 transition-all">
-                    {editingLesson ? "Update Lesson" : "Create Lesson"}
+                    {editingLesson ? "Darsni Yangilash" : "Darsni Yaratish"}
                 </button>
             </div>
 

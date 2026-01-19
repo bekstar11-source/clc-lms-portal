@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, ArrowRight, Home, 
-  BrainCircuit, Shuffle, Loader2, Eraser, Zap 
+  BrainCircuit, Shuffle, Loader2, Eraser, Zap, Lightbulb 
 } from 'lucide-react';
 import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -26,11 +26,18 @@ const WordGame = () => {
   const [scrambledLetters, setScrambledLetters] = useState([]);
   const [userGuess, setUserGuess] = useState([]);
   const [feedback, setFeedback] = useState(null);
-  const [streak, setStreak] = useState(0);
   
-  // 🔥 ANIMATSIYA VA XP OZGARISHLARI
+  // 🔥 BLOKLASH STATE (Anti-Spam)
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // 🔥 ANIMATSIYALAR
   const [showXpAnim, setShowXpAnim] = useState(false);
-  const [xpChange, setXpChange] = useState(0); // Qancha XP qo'shildi yoki ayrildi
+  const [xpChange, setXpChange] = useState(0);
+
+  // 🔥 HINT SOZLAMALARI
+  const HINT_COST = 20;
+
+  const timersRef = useRef([]);
 
   // --- HAPTIC FEEDBACK ---
   const triggerHaptic = (type) => {
@@ -38,8 +45,15 @@ const WordGame = () => {
         if (type === 'tap') navigator.vibrate(10);
         if (type === 'success') navigator.vibrate([10, 50, 10]);
         if (type === 'error') navigator.vibrate([50, 100, 50]);
+        if (type === 'hint') navigator.vibrate(20);
     }
   };
+
+  useEffect(() => {
+    return () => {
+        timersRef.current.forEach(clearTimeout);
+    };
+  }, []);
 
   useEffect(() => {
     const initGame = async () => {
@@ -51,9 +65,10 @@ const WordGame = () => {
             if (gameSnap.exists()) setGameData(gameSnap.data());
             
             const studentRef = doc(db, "students", user.uid);
-            onSnapshot(studentRef, (docSnap) => {
+            const unsub = onSnapshot(studentRef, (docSnap) => {
                 if(docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
             });
+            return () => unsub();
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
     initGame();
@@ -86,11 +101,13 @@ const WordGame = () => {
 
   const loadWord = (wordObj) => {
       setCurrentWordObj(wordObj);
+      // Harflarni ID bilan yaratamiz, shunda bir xil harflar bo'lsa ham ajrata olamiz
       const letters = wordObj.word.split('').map((l, i) => ({ id: i, char: l, status: 'available' }));
       setScrambledLetters(shuffleArray(letters)); 
       setUserGuess([]);
       setFeedback(null);
       setShowXpAnim(false);
+      setIsProcessing(false);
   };
 
   const nextWord = () => {
@@ -100,18 +117,19 @@ const WordGame = () => {
           loadWord(wordQueue[nextIdx]);
       } else {
           setGameState('menu'); 
+          setIsProcessing(false);
       }
   };
 
   const handleLetterClick = (letter) => {
-      if(feedback) return;
+      if(feedback || isProcessing) return;
       triggerHaptic('tap');
       setScrambledLetters(prev => prev.map(l => l.id === letter.id ? {...l, status: 'used'} : l));
       setUserGuess(prev => [...prev, letter]);
   };
 
   const handleGuessClick = (letter, index) => {
-      if(feedback) return;
+      if(feedback || isProcessing) return;
       triggerHaptic('tap');
       const newGuess = [...userGuess];
       newGuess.splice(index, 1);
@@ -120,56 +138,107 @@ const WordGame = () => {
   };
 
   const clearAll = () => {
-      if(userGuess.length === 0) return;
+      if(userGuess.length === 0 || isProcessing) return;
       triggerHaptic('tap');
       setUserGuess([]);
       setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
   };
 
+  // 🔥 HINT (YORDAM) FUNKSIYASI
+  const useHint = () => {
+    // 1. Validatsiyalar
+    if (isProcessing) return;
+    if (totalXp < HINT_COST) {
+        alert("XP yetarli emas! Yordam olish uchun kamida 20 XP kerak.");
+        return;
+    }
+    // Agar barcha kataklar to'lgan bo'lsa
+    if (userGuess.length >= currentWordObj.word.length) {
+        return; // Yoki noto'g'ri harfni o'chirish logikasini qo'shish mumkin
+    }
+
+    triggerHaptic('hint');
+    setIsProcessing(true); // Qisqa vaqtga bloklash
+
+    // 2. Kerakli harfni topish
+    const targetChar = currentWordObj.word[userGuess.length]; // Hozirgi kerak bo'lgan harf
+    
+    // Mavjud harflar ichidan keraklisini topamiz
+    const availableLetter = scrambledLetters.find(l => l.status === 'available' && l.char === targetChar);
+
+    if (availableLetter) {
+        // 3. XP ni ayirish
+        setXpChange(-HINT_COST);
+        setSessionXp(prev => prev - HINT_COST);
+        setShowXpAnim(true);
+        
+        const user = auth.currentUser;
+        if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(-HINT_COST) }).catch(console.error);
+
+        // 4. Harfni joylashtirish
+        setScrambledLetters(prev => prev.map(l => l.id === availableLetter.id ? {...l, status: 'used'} : l));
+        setUserGuess(prev => [...prev, availableLetter]);
+
+        // Animatsiyani yopish va blokni ochish
+        setTimeout(() => {
+            setShowXpAnim(false);
+            setIsProcessing(false);
+        }, 800);
+    } else {
+        // Agar kerakli harf allaqachon noto'g'ri joyga qo'yilgan bo'lsa
+        alert("Kerakli harf allaqachon ishlatilgan! Iltimos, noto'g'ri harflarni o'chiring.");
+        setIsProcessing(false);
+    }
+  };
+
   const checkAnswer = async () => {
+      if (isProcessing) return;
+      if (userGuess.length !== currentWordObj.word.length) return;
+
+      setIsProcessing(true);
+
       const word = userGuess.map(l => l.char).join('');
       const user = auth.currentUser;
       const baseReward = gameData.levels[level].xpReward || 10;
 
       if(word === currentWordObj.word) {
-          // --- TOG'RI JAVOB ---
           triggerHaptic('success');
           setFeedback('correct');
-          setStreak(s => s + 1);
           
-          setXpChange(baseReward); // +XP
+          setXpChange(baseReward);
           setSessionXp(prev => prev + baseReward);
           setShowXpAnim(true);
 
-          if(user) await updateDoc(doc(db, "students", user.uid), { gameXp: increment(baseReward) });
+          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(baseReward) }).catch(console.error);
           
-          setTimeout(nextWord, 1500); 
+          const timer = setTimeout(nextWord, 1500);
+          timersRef.current.push(timer);
+
       } else {
-          // --- XATO JAVOB (XP AYRISH) ---
           triggerHaptic('error');
           setFeedback('wrong');
-          setStreak(0);
           
-          // Jarima: Mukofotning yarmi (butun son qilib olinadi)
           const penalty = Math.floor(baseReward / 2); 
           
-          setXpChange(-penalty); // -XP (Manfiy)
+          setXpChange(-penalty);
           setSessionXp(prev => prev - penalty);
-          setShowXpAnim(true); // Animatsiyani ko'rsatish
+          setShowXpAnim(true);
 
-          // Bazadan ayirish
-          if(user) await updateDoc(doc(db, "students", user.uid), { gameXp: increment(-penalty) });
+          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(-penalty) }).catch(console.error);
 
-          setTimeout(() => {
+          const timer = setTimeout(() => {
               setFeedback(null);
               setUserGuess([]);
               setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
-              setShowXpAnim(false); // Animatsiyani o'chirish
+              setShowXpAnim(false);
+              setIsProcessing(false);
           }, 1200);
+          timersRef.current.push(timer);
       }
   };
 
   const shuffleCurrent = () => {
+      if(isProcessing) return;
       triggerHaptic('tap');
       const available = scrambledLetters.filter(l => l.status === 'available');
       const shuffledAvailable = shuffleArray(available);
@@ -188,7 +257,6 @@ const WordGame = () => {
   if(gameState === 'menu') {
       return (
         <div className="fixed inset-0 bg-slate-900 text-white font-sans overflow-y-auto overscroll-contain touch-manipulation">
-           {/* Header */}
            <div className="flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] sticky top-0 z-20 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800/50">
                <button onClick={()=>navigate('/games')} className="p-3 -m-3 bg-slate-800 rounded-full text-slate-400 active:scale-95 transition-transform"><Home size={22}/></button>
                <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700 shadow-lg shadow-indigo-500/10">
@@ -240,8 +308,13 @@ const WordGame = () => {
           <div className="flex-none flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))] bg-slate-900 z-10 border-b border-slate-800">
               <button onClick={()=>setGameState('menu')} className="p-2 -ml-2 bg-slate-800/50 rounded-xl text-slate-400 active:text-white transition-colors"><Home size={20}/></button>
               
-              {/* Session XP Display */}
               <div className="flex items-center gap-4">
+                 {/* Total XP with Hint indicator */}
+                 <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 border border-slate-700">
+                     <Trophy size={14} className="text-yellow-400"/>
+                     <span className="text-xs font-black text-yellow-400">{totalXp}</span>
+                 </div>
+
                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border transition-colors ${sessionXp < 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-indigo-500/10 border-indigo-500/20'}`}>
                     <Zap size={14} className={sessionXp < 0 ? "text-red-400 fill-red-400" : "text-yellow-400 fill-yellow-400"} />
                     <span className={`text-xs font-black ${sessionXp < 0 ? 'text-red-300' : 'text-indigo-300'}`}>{sessionXp > 0 ? '+' : ''}{sessionXp}</span>
@@ -253,7 +326,7 @@ const WordGame = () => {
               </div>
           </div>
 
-          {/* 🔥 XP Animation Overlay */}
+          {/* XP Animation Overlay */}
           {showXpAnim && (
               <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
                   <div className="animate-float-up flex flex-col items-center">
@@ -261,7 +334,7 @@ const WordGame = () => {
                           {xpChange > 0 ? '+' : ''}{xpChange} XP
                       </span>
                       <span className={`text-sm font-bold text-white mt-2 px-3 py-1 rounded-full backdrop-blur-sm ${xpChange > 0 ? 'bg-emerald-500/80' : 'bg-red-500/80'}`}>
-                          {xpChange > 0 ? 'Correct!' : 'Oops!'}
+                          {xpChange === -20 ? 'Hint Used' : (xpChange > 0 ? 'Correct!' : 'Oops!')}
                       </span>
                   </div>
               </div>
@@ -283,6 +356,7 @@ const WordGame = () => {
                           <button 
                             key={i}
                             onClick={() => letter && handleGuessClick(letter, i)}
+                            disabled={isProcessing}
                             className={`
                                 rounded-xl border-b-4 font-black flex items-center justify-center transition-all duration-200 shadow-sm
                                 ${isLongWord ? 'w-10 h-12 text-xl' : 'w-12 h-14 text-2xl'}
@@ -290,6 +364,7 @@ const WordGame = () => {
                                     ? (feedback === 'correct' ? 'bg-emerald-500 border-emerald-700 text-white' : feedback === 'wrong' ? 'bg-rose-500 border-rose-700 text-white' : 'bg-white text-slate-900 border-slate-300 active:translate-y-[2px] active:border-b-0') 
                                     : 'bg-slate-800 border-slate-700'
                                 }
+                                ${isProcessing ? 'cursor-not-allowed opacity-90' : ''} 
                             `}
                           >
                               {letter?.char}
@@ -305,9 +380,11 @@ const WordGame = () => {
                           <div key={l.id} className={`${l.status === 'used' ? 'opacity-0 pointer-events-none scale-75 w-0' : 'scale-100 w-auto'} transition-all duration-300`}>
                               <button 
                                 onClick={() => handleLetterClick(l)}
+                                disabled={isProcessing}
                                 className={`
-                                    bg-indigo-600 rounded-xl border-b-4 border-indigo-800 text-white font-bold active:border-b-0 active:translate-y-1 transition-all shadow-lg
+                                    bg-indigo-600 rounded-xl border-b-4 border-indigo-800 text-white font-bold transition-all shadow-lg
                                     ${isLongWord ? 'w-11 h-11 text-lg' : 'w-14 h-14 text-2xl'}
+                                    ${isProcessing ? 'opacity-50 cursor-not-allowed' : 'active:border-b-0 active:translate-y-1'}
                                 `}
                               >
                                   {l.char}
@@ -320,22 +397,42 @@ const WordGame = () => {
 
           {/* Footer Actions */}
           <div className="flex-none p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-slate-900 border-t border-slate-800 z-20">
-              <div className="flex gap-3 max-w-md mx-auto">
-                  <button onClick={shuffleCurrent} className="h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-slate-400 hover:text-white active:scale-95 transition-transform border-b-4 border-slate-900 active:border-b-0 active:translate-y-1">
-                      <Shuffle size={24}/>
+              <div className="flex gap-2 max-w-md mx-auto">
+                  <button 
+                    onClick={shuffleCurrent} 
+                    disabled={isProcessing}
+                    className="h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-transform border-b-4 border-slate-900 disabled:opacity-50 active:border-b-0 active:translate-y-1"
+                  >
+                      <Shuffle size={20}/>
                   </button>
-                  <button onClick={clearAll} className="h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-rose-400 hover:text-rose-300 active:scale-95 transition-transform border-b-4 border-slate-900 active:border-b-0 active:translate-y-1">
-                      <Eraser size={24}/>
+                  
+                  {/* 🔥 HINT BUTTON */}
+                  <button 
+                    onClick={useHint} 
+                    disabled={isProcessing || totalXp < HINT_COST || userGuess.length === wordLength}
+                    className="relative h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-yellow-400 hover:text-yellow-300 transition-transform border-b-4 border-slate-900 disabled:opacity-50 active:border-b-0 active:translate-y-1 group"
+                  >
+                      <Lightbulb size={24} className={totalXp >= HINT_COST ? "fill-yellow-400/20" : ""}/>
+                      <span className="absolute -top-2 -right-2 bg-yellow-500 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-slate-900">-{HINT_COST}</span>
                   </button>
+
+                  <button 
+                    onClick={clearAll} 
+                    disabled={isProcessing}
+                    className="h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-rose-400 hover:text-rose-300 transition-transform border-b-4 border-slate-900 disabled:opacity-50 active:border-b-0 active:translate-y-1"
+                  >
+                      <Eraser size={20}/>
+                  </button>
+                  
                   <button 
                     onClick={checkAnswer}
-                    disabled={userGuess.length !== wordLength}
-                    className={`flex-1 h-14 rounded-xl font-black text-lg uppercase tracking-wider transition-all shadow-lg active:scale-95 border-b-4 active:border-b-0 active:translate-y-1
-                        ${userGuess.length === wordLength 
-                            ? 'bg-emerald-500 border-emerald-700 text-white shadow-emerald-500/20' 
+                    disabled={userGuess.length !== wordLength || isProcessing}
+                    className={`flex-1 h-14 rounded-xl font-black text-lg uppercase tracking-wider transition-all shadow-lg border-b-4 
+                        ${userGuess.length === wordLength && !isProcessing
+                            ? 'bg-emerald-500 border-emerald-700 text-white shadow-emerald-500/20 active:scale-95 active:border-b-0 active:translate-y-1' 
                             : 'bg-slate-800 border-slate-900 text-slate-600 cursor-not-allowed'}`}
                   >
-                      Check
+                      {isProcessing ? <Loader2 className="animate-spin mx-auto"/> : "Check"}
                   </button>
               </div>
           </div>
