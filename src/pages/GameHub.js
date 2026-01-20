@@ -4,7 +4,8 @@ import {
   Trophy, Gamepad2, Zap, ArrowRight, Sparkles, 
   BrainCircuit, AlignLeft, Crown, Rocket, ArrowLeft 
 } from 'lucide-react';
-import { doc, getDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+// 🔥 "where" qo'shildi
+import { doc, getDoc, collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 const GameHub = () => {
@@ -18,15 +19,26 @@ const GameHub = () => {
     if (navigator.vibrate) navigator.vibrate(10); 
   };
 
+  // 🔥 XP NI TO'G'RI OLISH (FIXED)
   useEffect(() => {
     const fetchMyXp = async () => {
       const user = auth.currentUser;
       if (user) {
         try {
-          const docRef = doc(db, "students", user.uid);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) setXp(docSnap.data().gameXp || 0);
-        } catch (error) { console.error(error); }
+          // 1. Bazadan 'uid' maydoni bizning ID ga teng bo'lgan hujjatni qidiramiz
+          const q = query(collection(db, "students"), where("uid", "==", user.uid));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+            // 2. Topilgan birinchi hujjatdan XP ni olamiz
+            const studentData = querySnapshot.docs[0].data();
+            setXp(studentData.gameXp || 0);
+          } else {
+            console.log("O'quvchi topilmadi");
+          }
+        } catch (error) { 
+          console.error("XP olishda xatolik:", error); 
+        }
       }
     };
     fetchMyXp();
@@ -60,7 +72,7 @@ const GameHub = () => {
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
   };
 
-  // Skeleton Loader (Ixchamlashtirilgan)
+  // Skeleton Loader
   const LeaderboardSkeleton = () => (
     <div className="flex gap-3 overflow-hidden pb-2 pl-1">
       {[1,2,3,4].map(i => (
@@ -114,7 +126,7 @@ const GameHub = () => {
       {/* --- SCROLLABLE CONTENT --- */}
       <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-8 overscroll-contain relative z-10">
         
-        {/* --- HALL OF FAME (IXCHAMLASHTIRILDI) --- */}
+        {/* --- HALL OF FAME --- */}
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center justify-between mb-3 px-1">
                 <div className="flex items-center gap-2">
@@ -132,14 +144,12 @@ const GameHub = () => {
                         const { title, color } = getTitle(index);
                         const isTop3 = index < 3;
                         return (
-                            // 🔥 O'zgartirilgan o'lchamlar: w-[85px], min-h-[125px], p-2
                             <div key={student.id} className={`snap-center shrink-0 relative flex flex-col items-center justify-center gap-1.5 w-[90px] min-h-[135px] bg-white/5 backdrop-blur-md p-2 rounded-2xl border transition-all active:scale-95
                                ${index === 0 ? 'border-yellow-400/50 bg-yellow-400/10 shadow-[0_0_15px_-5px_rgba(250,204,21,0.3)] scale-105 z-10' : 
                                  index === 1 ? 'border-white/30' : 
                                  index === 2 ? 'border-orange-400/40' : 
                                  'border-white/10 bg-black/20'}`}>
                                 
-                                {/* Rank Badge (Kichraytirildi) */}
                                 <div className={`absolute -top-2 -left-1 w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] border-2 border-black/50 shadow-md z-20
                                     ${index === 0 ? 'bg-yellow-400 text-black' : 
                                       index === 1 ? 'bg-slate-300 text-black' : 
@@ -149,7 +159,6 @@ const GameHub = () => {
 
                                 {index === 0 && <Crown size={16} className="absolute -top-5 text-yellow-400 fill-yellow-400 animate-bounce" />}
 
-                                {/* Avatar (Kichraytirildi) */}
                                 <div className={`w-10 h-10 rounded-full overflow-hidden border-2 mb-0.5 bg-white/10 shadow-md
                                     ${index === 0 ? 'border-yellow-400' : isTop3 ? 'border-white/50' : 'border-white/10'}`}>
                                     <img src={getAvatar(student.avatarSeed || student.name)} alt="av" className="w-full h-full object-cover" />

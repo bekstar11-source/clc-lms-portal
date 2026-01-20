@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Home, Heart, Flame, Loader2, Clock, Zap, AlertCircle, RefreshCw 
 } from 'lucide-react';
-import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
+// 🔥 "collection", "query", "where", "getDocs" qo'shildi
+import { doc, getDoc, updateDoc, increment, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 
@@ -22,7 +23,7 @@ const SprintGame = () => {
   
   // Timer & Logic
   const [timeLeft, setTimeLeft] = useState(10);
-  const [baseTime, setBaseTime] = useState(10); // 🔥 Asosiy vaqtni saqlash uchun
+  const [baseTime, setBaseTime] = useState(10); 
   
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
@@ -32,9 +33,29 @@ const SprintGame = () => {
   // Animatsiya
   const [showXpAnim, setShowXpAnim] = useState(false);
   
-  // Refs (Performance uchun muhim)
+  // Refs
   const timerRef = useRef(null);
   const answerTimeoutRef = useRef(null);
+
+  // 🔥 YANGI: XP YANGILASH FUNKSIYASI (DocumentID topish bilan)
+  const updateStudentXP = async (amount) => {
+      try {
+          const user = auth.currentUser;
+          if (!user) return;
+
+          const q = query(collection(db, "students"), where("uid", "==", user.uid));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+              const studentDoc = querySnapshot.docs[0];
+              const studentRef = doc(db, "students", studentDoc.id);
+              await updateDoc(studentRef, { gameXp: increment(amount) });
+              console.log(`Sprint XP: ${amount}`);
+          }
+      } catch (error) {
+          console.error("XP xatosi:", error);
+      }
+  };
 
   // 1. Initial Data Fetch
   useEffect(() => {
@@ -46,30 +67,34 @@ const SprintGame = () => {
         const gameSnap = await getDoc(gameRef);
         if (gameSnap.exists()) setGameData(gameSnap.data());
         
-        const studentRef = doc(db, "students", user.uid);
-        const unsub = onSnapshot(studentRef, (docSnap) => {
-          if (docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
-        });
-        return () => unsub();
+        // 🔥 XP ni real vaqtda kuzatish (To'g'ri ID orqali)
+        const q = query(collection(db, "students"), where("uid", "==", user.uid));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            const studentDoc = snap.docs[0];
+            const unsub = onSnapshot(doc(db, "students", studentDoc.id), (docSnap) => {
+                if (docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
+            });
+            return () => unsub();
+        }
       } catch (error) { console.error(error); } finally { setLoading(false); }
     };
     initGame();
 
-    // Cleanup on unmount
     return () => {
         clearInterval(timerRef.current);
         clearTimeout(answerTimeoutRef.current);
     };
   }, []);
 
-  // 2. Timer Logic (Optimized)
+  // 2. Timer Logic
   useEffect(() => {
     if (gameState === 'playing' && !feedback) {
         timerRef.current = setInterval(() => {
             setTimeLeft((prev) => {
                 if (prev <= 0.1) {
                     clearInterval(timerRef.current);
-                    handleWrong(true); // Vaqt tugadi
+                    handleWrong(true); 
                     return 0;
                 }
                 return prev - 0.1;
@@ -79,7 +104,7 @@ const SprintGame = () => {
         clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
-  }, [gameState, feedback]); // feedback o'zgarganda timer to'xtaydi
+  }, [gameState, feedback]);
 
   const shuffleArray = (array) => {
     let arr = [...array];
@@ -99,13 +124,11 @@ const SprintGame = () => {
       setCurrentIndex(0);
       setSelectedLevel(levelKey); 
       
-      // Reset Stats
       setScore(0); 
       setLives(3); 
       setStreak(0); 
       setSessionXp(0); 
       
-      // Set Time
       const time = level.baseTime || 10;
       setBaseTime(time);
       setTimeLeft(time);
@@ -118,10 +141,7 @@ const SprintGame = () => {
       if(!q) return; 
       const shuffledOptions = shuffleArray(q.options);
       setCurrentQuestion({ ...q, options: shuffledOptions });
-      
-      // 🔥 MUHIM: Har bir yangi savolda vaqtni to'liq qaytaramiz
       setTimeLeft(baseTime); 
-      
       setFeedback(null);
       setShowXpAnim(false);
   };
@@ -137,7 +157,7 @@ const SprintGame = () => {
   }, [currentIndex, questionQueue, baseTime]);
 
   const handleAnswer = (option) => {
-      if (feedback) return; // Spam click oldini olish
+      if (feedback) return;
 
       if (option === currentQuestion.a) {
           // --- TO'G'RI JAVOB ---
@@ -145,15 +165,13 @@ const SprintGame = () => {
           setScore(s => s + 1); 
           setStreak(s => s + 1);
           
-          // XP berish
-          const user = auth.currentUser;
           const reward = gameData.levels[selectedLevel].xpReward || 5; 
           setSessionXp(prev => prev + reward);
           setShowXpAnim(true);
 
-          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(reward) }).catch(console.error);
+          // 🔥 XP QO'SHISH
+          updateStudentXP(reward);
           
-          // Keyingi savolga o'tish (600ms dan keyin)
           answerTimeoutRef.current = setTimeout(() => nextQuestion(), 600);
       } else {
           // --- XATO JAVOB ---
@@ -162,13 +180,12 @@ const SprintGame = () => {
   };
 
   const handleWrong = (isTimeOut = false) => {
-      if(gameState !== 'playing') return; // Agar o'yin tugagan bo'lsa, qaytish
+      if(gameState !== 'playing') return;
 
       setFeedback(isTimeOut ? 'timeout' : 'wrong'); 
       setLives(l => {
           const newLives = l - 1;
           if (newLives <= 0) {
-              // Game Over
               answerTimeoutRef.current = setTimeout(() => setGameState('game_over'), 800);
               return 0;
           }
@@ -176,7 +193,7 @@ const SprintGame = () => {
       });
       setStreak(0);
 
-      if (lives > 1) { // Agar jon qolgan bo'lsa
+      if (lives > 1) { 
           answerTimeoutRef.current = setTimeout(() => {
               nextQuestion(); 
           }, 800);

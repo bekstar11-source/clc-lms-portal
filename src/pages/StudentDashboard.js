@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   LogOut, Settings, Trophy, AlertCircle, BookOpen,
   ChevronDown, ChevronUp, Calendar, Bell, RefreshCcw,
-  ClipboardList, Zap, Gamepad2, Megaphone, Timer, CheckCircle2, X,
+  ClipboardList, Zap, Gamepad2, Timer, CheckCircle2, X,
   MessageCircle, AlertTriangle, Medal, ChevronRight, TrendingUp, Home, PieChart,
-  Image as ImageIcon, FileText, CheckSquare, Square, ListTodo, Layers, Bookmark 
+  Image as ImageIcon, CheckSquare, Layers, Bookmark, Clock
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, orderBy, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore'; 
@@ -16,16 +16,18 @@ import {
 import { App } from '@capacitor/app';
 
 // --- CONFIG ---
-const CACHE_KEY = 'student_dashboard_cache';
+// 🔥 CACHE KEY YANGILANDI (Eski noto'g'ri hisob-kitobni o'chirish uchun)
+const CACHE_KEY = 'student_dashboard_cache_v3'; 
 const CACHE_DURATION = 10 * 60 * 1000; 
+const GRACE_PERIOD_DAYS = 7; 
 
 const BACKGROUNDS = [
-  "https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448", 
-  "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop", 
-  "https://images.unsplash.com/photo-1557683316-973673baf926?q=80&w=2029&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop", 
-  "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?q=80&w=2072&auto=format&fit=crop", 
-  "https://github.com/user-attachments/assets/060d6d79-1665-4c0a-8ec5-07c7fdbfb6c6"
+  "https://github.com/user-attachments/assets/266b4f61-5ab5-405d-ab03-7ecdd1e02423", 
+  "https://github.com/user-attachments/assets/9c35cbc1-aae6-4607-920e-e6cd50298e97", 
+  "https://github.com/user-attachments/assets/2de84d6a-4d2c-4402-87f8-18a14eecab5d",
+  "https://github.com/user-attachments/assets/0375b733-f6b1-4e64-8243-c961757f9280", 
+  "https://github.com/user-attachments/assets/9f433be3-78be-4bff-9a1c-4c1b9689663d", 
+  "https://github.com/user-attachments/assets/892e5666-8c06-485c-94d9-f2f2c975bf38"
 ];
 
 const triggerHaptic = (type = 'tap') => {
@@ -35,7 +37,7 @@ const triggerHaptic = (type = 'tap') => {
   }
 };
 
-const CountdownTimer = ({ deadline }) => {
+const CountdownTimer = ({ deadline, type = "normal" }) => {
   const [timeLeft, setTimeLeft] = useState("");
   useEffect(() => {
     if (!deadline) return;
@@ -43,17 +45,28 @@ const CountdownTimer = ({ deadline }) => {
       const now = new Date();
       const target = new Date(deadline); 
       const diff = target - now;
-      if (diff <= 0) { setTimeLeft("TUGADI"); return; }
+      
+      if (diff <= 0) { 
+          setTimeLeft("MUDDAT TUGADI"); 
+          return; 
+      }
+      
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      
       setTimeLeft(`${days}k ${hours}s ${minutes}m`);
     };
     calculateTime(); 
     const timer = setInterval(calculateTime, 60000); 
     return () => clearInterval(timer);
   }, [deadline]);
-  return <span className="font-mono font-bold tracking-widest tabular-nums">{timeLeft}</span>;
+
+  return (
+    <span className={`font-mono font-bold tracking-widest tabular-nums ${type === 'danger' ? 'text-red-600' : 'text-inherit'}`}>
+        {timeLeft}
+    </span>
+  );
 };
 
 // --- SKELETON LOADER ---
@@ -89,13 +102,14 @@ const StudentDashboard = () => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0); 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
+  const [isAlertsExpanded, setIsAlertsExpanded] = useState(true);
 
   const [bgImage, setBgImage] = useState(BACKGROUNDS[0]);
   const [isBgMenuOpen, setIsBgMenuOpen] = useState(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
 
   const hasNewHomework = notifications.some(n => n.type === 'lesson');
+  const todayDate = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     const backButtonListener = App.addListener('backButton', () => {
@@ -207,7 +221,7 @@ const StudentDashboard = () => {
         const groupRef = doc(db, "groups", studentData.groupId);
         const qAllStudents = query(collection(db, "students"), where("groupId", "==", studentData.groupId));
         const qAllGrades = query(collection(db, "grades"), where("groupId", "==", studentData.groupId));
-        const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId), orderBy("date", "asc"));
+        const lessonsQuery = query(collection(db, "lessons"), where("groupId", "==", studentData.groupId));
 
         const [groupSnap, snapAllStudents, snapAllGrades, lessonsSnapshot] = await Promise.all([
             getDoc(groupRef), getDocs(qAllStudents), getDocs(qAllGrades), getDocs(lessonsQuery)
@@ -216,19 +230,48 @@ const StudentDashboard = () => {
         if (groupSnap.exists()) grName = groupSnap.data().name;
         
         const allGradesList = snapAllGrades.docs.map(d => d.data());
-        const allLessonsList = lessonsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        const activeLessons = allLessonsList.filter(l => !l.isDelayed);
+        let allLessonsList = lessonsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        // Sanasi bo'yicha sortirovka (Eng yangisi tepada)
+        allLessonsList.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        // Faqat muddati o'tgan (past) darslarni olamiz
+        const pastLessons = allLessonsList.filter(l => !l.isDelayed && l.date <= todayDate);
 
         const allStuds = snapAllStudents.docs.map(d => ({ id: d.id, name: d.data().name || "Unknown", avatarSeed: d.data().avatarSeed }));
+        
+        // 🔥 1. REYTING TIZIMI YANGILANDI: Taskma-task hisoblash
         const leaderData = allStuds.map(s => {
           const sGrades = allGradesList.filter(g => g.studentId === s.id);
           let totalScore = 0;
-          if (activeLessons.length === 0) return { id: s.id, name: s.name, avg: 0, avatarSeed: s.avatarSeed };
-          activeLessons.forEach(lesson => {
-              const grade = sGrades.find(g => g.lessonId === lesson.id);
-              if (grade) totalScore += Number(grade.score) || 0;
+          let totalTasksCount = 0;
+          
+          if (pastLessons.length === 0) return { id: s.id, name: s.name, avg: 0, avatarSeed: s.avatarSeed };
+          
+          pastLessons.forEach(lesson => {
+              // Agar darsda vazifalar (tasks) bo'lsa, har birini sanaymiz
+              if (lesson.tasks && lesson.tasks.length > 0) {
+                  lesson.tasks.forEach(task => {
+                      // Shu dars va shu matn uchun baho bormi?
+                      const grade = sGrades.find(g => g.lessonId === lesson.id && (g.taskType === task.text || g.taskName === task.text));
+                      
+                      totalTasksCount++; // Vazifalar soni oshadi
+                      if (grade) {
+                          totalScore += Number(grade.score) || 0;
+                      } else {
+                          totalScore += 0; // Baholanmagan = 0
+                      }
+                  });
+              } else {
+                  // Agar tasks bo'lmasa, darsni o'ziga umumiy baho bormi?
+                  const grade = sGrades.find(g => g.lessonId === lesson.id);
+                  totalTasksCount++;
+                  if (grade) totalScore += Number(grade.score) || 0;
+                  else totalScore += 0;
+              }
           });
-          const avg = Math.round(totalScore / activeLessons.length);
+          
+          const avg = totalTasksCount === 0 ? 0 : Math.round(totalScore / totalTasksCount);
           return { id: s.id, name: s.name, avg: avg, avatarSeed: s.avatarSeed };
         }).sort((a, b) => b.avg - a.avg);
         
@@ -238,7 +281,7 @@ const StudentDashboard = () => {
         calculatedAvg = currentUserStats ? currentUserStats.avg : 0;
 
         lessonData = allLessonsList.map(doc => {
-            return { ...doc, rawDate: doc.date ? doc.date : new Date().toISOString().split('T')[0] };
+            return { ...doc, rawDate: doc.date ? doc.date : todayDate };
         });
       }
 
@@ -252,6 +295,8 @@ const StudentDashboard = () => {
          else if (data.date) dateObj = new Date(data.date);
 
          let retakeDeadlineStr = null;
+         
+         // A. RETAKE: Past baholarni actionItems ga qo'shish
          if (data.score < 60) {
              if (data.retakeDeadline) {
                  retakeDeadlineStr = data.retakeDeadline.toDate ? data.retakeDeadline.toDate().toISOString() : data.retakeDeadline;
@@ -261,7 +306,13 @@ const StudentDashboard = () => {
                  retakeDeadlineStr = deadlineDate.toISOString();
              }
              if (new Date(retakeDeadlineStr) > new Date() && data.status !== 'retake_submitted') {
-                 actions.push({ type: 'retake', id: doc.id, topic: data.comment, deadline: retakeDeadlineStr });
+                 actions.push({ 
+                     type: 'retake', 
+                     id: doc.id, 
+                     topic: `${data.comment} - ${data.taskType || ''}`, // Textni ham ko'rsatamiz
+                     deadline: retakeDeadlineStr,
+                     date: data.date 
+                 });
              }
          }
          return {
@@ -272,14 +323,44 @@ const StudentDashboard = () => {
          };
       });
 
-      const today = new Date().toISOString().split('T')[0];
+      // 🔥 2. ACTION ITEMS (DIQQAT TALAB): Har bir Text (Vazifa) ni tekshirish
       lessonData.forEach(l => {
-          if (!l.isDelayed && l.rawDate < today) {
-              const hasGrade = gradesData.find(g => g.lessonId === l.id);
-              if (!hasGrade) {
-                  const deadlineDate = new Date(l.rawDate);
-                  deadlineDate.setDate(deadlineDate.getDate() + 3); 
-                  actions.push({ type: 'missing', id: l.id, topic: l.topic, date: l.rawDate, deadline: deadlineDate.toISOString() });
+          // Faqat muddati o'tgan darslar
+          if (!l.isDelayed && l.rawDate < todayDate) {
+              
+              if (l.tasks && l.tasks.length > 0) {
+                  l.tasks.forEach(task => {
+                      // Shu dars va shu matn uchun baho bormi?
+                      const hasGrade = gradesData.find(g => g.lessonId === l.id && (g.taskType === task.text || g.taskName === task.text));
+                      
+                      // Agar baho bo'lmasa -> DIQQAT TALABGA QO'SHAMIZ
+                      if (!hasGrade) {
+                          const deadlineDate = new Date(l.rawDate);
+                          deadlineDate.setDate(deadlineDate.getDate() + GRACE_PERIOD_DAYS);
+                          
+                          actions.push({ 
+                              type: 'missing', 
+                              id: l.id, 
+                              topic: `${l.topic} : ${task.text}`, // Mavzu va Text nomi
+                              date: l.rawDate, 
+                              deadline: deadlineDate.toISOString() 
+                          });
+                      }
+                  });
+              } else {
+                  // Tasklari yo'q dars bo'lsa, umumiy tekshiramiz
+                  const hasGrade = gradesData.find(g => g.lessonId === l.id);
+                  if (!hasGrade) {
+                      const deadlineDate = new Date(l.rawDate);
+                      deadlineDate.setDate(deadlineDate.getDate() + GRACE_PERIOD_DAYS);
+                      actions.push({ 
+                          type: 'missing', 
+                          id: l.id, 
+                          topic: l.topic, 
+                          date: l.rawDate, 
+                          deadline: deadlineDate.toISOString() 
+                      });
+                  }
               }
           }
       });
@@ -303,15 +384,10 @@ const StudentDashboard = () => {
   useEffect(() => {
     if (!auth.currentUser) return;
     const q = query(collection(db, "chats"), where("participants", "array-contains", auth.currentUser.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      let totalUnread = 0;
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.unreadCounts && data.unreadCounts[auth.currentUser.uid]) {
-          totalUnread += data.unreadCounts[auth.currentUser.uid];
-        }
-      });
-      setUnreadMessages(totalUnread);
+    const unsubscribe = onSnapshot(q, (snap) => {
+      let total = 0;
+      snap.docs.forEach(d => { if (d.data().unreadCounts?.[auth.currentUser.uid]) total += d.data().unreadCounts[auth.currentUser.uid]; });
+      setUnreadMessages(total);
     });
     return () => unsubscribe();
   }, []);
@@ -350,7 +426,6 @@ const StudentDashboard = () => {
   };
 
   const getAvatarUrl = (seed) => `https://api.dicebear.com/7.x/notionists/svg?seed=${seed || 'default'}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
-  const today = new Date().toISOString().split('T')[0];
   
   const getMotivationMessage = (score) => {
     if (score >= 90) return { text: "Ajoyib! Davom eting!", color: "text-emerald-200" };
@@ -398,11 +473,11 @@ const StudentDashboard = () => {
       {/* BACKGROUND */}
       <div className="absolute inset-0 z-0 transition-all duration-500">
          <div className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700" style={{ backgroundImage: `url('${bgImage}')` }}></div>
-         <div className="absolute inset-0 bg-white/20 backdrop-blur-1xl"></div>
+         <div className="absolute inset-0 bg-black/10 backdrop-blur-1xl"></div>
       </div>
 
       {/* HEADER */}
-      <nav className="relative z-50 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
+      <nav className="relative z-10 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
             <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 shadow-sm">
                 <img src={getAvatarUrl(student?.avatarSeed || student?.name)} alt="avatar" className="w-full h-full object-cover"/>
@@ -467,6 +542,8 @@ const StudentDashboard = () => {
             {/* 1. DASHBOARD */}
             {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                
+                {/* 1.1 ASOSIY KARTA (AVERAGE SCORE) */}
                 <div className="bg-gradient-to-br from-indigo-600 to-violet-800 rounded-3xl p-5 text-white shadow-xl shadow-indigo-200/50 relative overflow-hidden">
                     <div className="flex justify-between items-center relative z-10">
                         <div className="flex items-center gap-4">
@@ -504,6 +581,7 @@ const StudentDashboard = () => {
                     <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"></div>
                 </div>
 
+                {/* 1.2 🔥 DIQQAT TALAB (ACTION ITEMS - ACCORDION) */}
                 {actionItems.length > 0 && (
                     <div className="bg-red-500 rounded-2xl shadow-lg shadow-red-200 overflow-hidden transition-all duration-300 border border-red-400">
                         <button onClick={() => { triggerHaptic(); setIsAlertsExpanded(!isAlertsExpanded); }} className="w-full flex items-center justify-between p-4 text-white active:bg-red-600 transition-colors">
@@ -513,23 +591,24 @@ const StudentDashboard = () => {
                             </div>
                             {isAlertsExpanded ? <ChevronUp size={20}/> : <ChevronDown size={20}/>}
                         </button>
+                        
+                        {/* Garmoshka ichi */}
                         {isAlertsExpanded && (
                             <div className="bg-white p-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
                                 {actionItems.map((item, idx) => (
                                     <div key={idx} onClick={() => setActiveTab(item.type === 'retake' ? 'grades' : 'schedule')} className="flex items-center justify-between p-3 bg-red-50 border border-red-100 rounded-xl active:scale-98 transition-transform cursor-pointer">
                                         <div className="flex-1 min-w-0 pr-3">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${item.type === 'retake' ? 'bg-red-200 text-red-700' : 'bg-orange-200 text-orange-700'}`}>{item.type === 'retake' ? "Retake" : "Missing"}</span>
-                                                <span className="text-[10px] font-bold text-slate-400 truncate">{new Date(item.date || new Date()).toLocaleDateString()}</span>
+                                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${item.type === 'retake' ? 'bg-red-200 text-red-700' : 'bg-orange-200 text-orange-700'}`}>{item.type === 'retake' ? "Retake" : "Topshirilmagan"}</span>
+                                                <span className="text-[10px] font-bold text-slate-400 truncate">{new Date(item.date).toLocaleDateString()}</span>
                                             </div>
                                             <p className="text-xs font-bold text-slate-700 truncate">{item.topic}</p>
                                         </div>
                                         <div className="shrink-0 text-right">
-                                            {item.type === 'retake' ? (
-                                                <div className="bg-red-100 text-red-600 px-2 py-1 rounded-lg text-[10px] font-mono font-bold flex flex-col items-center"><span className="text-[8px] opacity-70 uppercase mb-0.5">Qoldi</span><CountdownTimer deadline={item.deadline} /></div>
-                                            ) : (
-                                                <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-500"><ChevronRight size={16}/></div>
-                                            )}
+                                            <div className="bg-red-100 text-red-600 px-2 py-1 rounded-lg text-[10px] font-mono font-bold flex flex-col items-center">
+                                                <span className="text-[8px] opacity-70 uppercase mb-0.5">Qoldi</span>
+                                                <CountdownTimer deadline={item.deadline} type="danger" />
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
@@ -538,6 +617,7 @@ const StudentDashboard = () => {
                     </div>
                 )}
 
+                {/* 1.3 TOP O'QUVCHILAR */}
                 <div className="bg-white/80 backdrop-blur-sm p-5 rounded-[2rem] border border-white shadow-sm space-y-4">
                 <div className="flex items-center gap-2 mb-2"><Trophy className="text-yellow-500" size={18} /><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Top O'quvchilar</h3></div>
                 <div className="space-y-3">
@@ -556,6 +636,7 @@ const StudentDashboard = () => {
                 </div>
                 </div>
 
+                {/* 1.4 STATISTIKA */}
                 <div className="bg-white/80 backdrop-blur-sm p-5 rounded-[2rem] border border-white shadow-sm mb-4">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
@@ -600,7 +681,7 @@ const StudentDashboard = () => {
                 const monthLessons = groupedLessons[month];
                 const isExpanded = expandedMonths[month] || index === 0;
                 return (
-                    <div key={month} className="bg-white/80 backdrop-blur-md rounded-[2rem] border border-white shadow-sm overflow-hidden">
+                    <div key={month} className="bg-white/50 backdrop-blur-md rounded-[2rem] border border-white shadow-sm overflow-hidden">
                     <div onClick={() => { triggerHaptic('tap'); setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] })); }} className={`p-5 flex justify-between items-center cursor-pointer transition-colors active:bg-slate-50`}>
                         <div className="flex items-center gap-3"><div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600"><Calendar size={20} /></div><div><h3 className="font-black text-slate-800 text-sm uppercase tracking-wide">{month}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{monthLessons.length} ta dars</p></div></div>
                         {isExpanded ? <ChevronUp className="text-slate-400" size={20}/> : <ChevronDown className="text-slate-400" size={20}/>}
@@ -608,49 +689,82 @@ const StudentDashboard = () => {
                     {isExpanded && (
                         <div className="p-4 space-y-4 border-t border-slate-100 bg-slate-50/50">
                         {monthLessons.map((lesson) => {
-                            const lessonGrade = grades.find(g => g.lessonId === lesson.id);
-                            const isMissing = lesson.rawDate < today && !lessonGrade && !lesson.isDelayed;
-                            const isRetake = lessonGrade && lessonGrade.score <= 20;
-                            const isProblematic = isMissing || isRetake;
+                            // Dars muddati o'tganmi?
+                            const lessonDate = new Date(lesson.rawDate);
+                            const isLate = lessonDate < new Date(todayDate);
                             
+                            // Kechikkan topshirish muddati
+                            const lateDeadline = new Date(lessonDate);
+                            lateDeadline.setDate(lateDeadline.getDate() + GRACE_PERIOD_DAYS);
+
                             return (
-                            <div key={lesson.id} className={`p-5 rounded-[1.5rem] border transition-all ${isProblematic ? 'bg-white border-red-200 shadow-md shadow-red-100/50' : 'bg-white border-slate-100 shadow-sm'} ${lesson.isDelayed ? 'opacity-60 grayscale' : ''}`}>
+                            <div key={lesson.id} className={`p-5 rounded-[1.5rem] border transition-all 
+                                ${isLate ? 'border-slate-100 shadow-sm' : 'bg-white border-slate-100 shadow-sm'} ${lesson.isDelayed ? 'opacity-60 grayscale' : ''}`}>
+                                
                                 <div className="flex justify-between items-start gap-3">
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-2">
-                                            <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest ${isProblematic ? 'bg-red-500 text-white' : 'bg-indigo-50 text-indigo-600'}`}>{lesson.rawDate}</span>
+                                            <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest ${isLate ? 'bg-slate-200 text-slate-500' : 'bg-indigo-50 text-indigo-600'}`}>{lesson.rawDate}</span>
                                             {lesson.isDelayed && <span className="text-[9px] font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded-md">Delayed</span>}
                                         </div>
-                                        {/* 🔥 MAVZU (TOPIC) */}
+                                        
+                                        {/* MAVZU (TOPIC) */}
                                         <h4 className="font-black text-slate-800 text-sm uppercase truncate">{lesson.topic}</h4>
                                         
-                                        {/* 🔥 VAZIFALAR RO'YXATI (CHECKLIST) */}
+                                        {/* VAZIFALAR RO'YXATI (CHECKLIST) */}
                                         {lesson.tasks && lesson.tasks.length > 0 ? (
                                             <div className="mt-3 flex flex-col gap-2">
-                                                {lesson.tasks.map((task, taskIdx) => (
-                                                    <div 
-                                                        key={taskIdx}
-                                                        onClick={() => toggleTaskCompletion(lesson.id, taskIdx, task.completed)}
-                                                        className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer active:scale-98 transition-all
-                                                            ${task.completed ? 'bg-emerald-50 border-emerald-100 shadow-sm' : 'bg-white border-slate-200 hover:border-indigo-300'}`}
-                                                    >
-                                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all ${task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
-                                                            {task.completed && <CheckSquare size={14} className="text-white" />}
+                                                {lesson.tasks.map((task, taskIdx) => {
+                                                    // BAHOLANGANLIGINI TEKSHIRISH
+                                                    const isGraded = grades.some(g => g.lessonId === lesson.id && (g.taskType === task.text || g.taskName === task.text));
+                                                    
+                                                    // O'TIB KETGAN VA BAHOLANMAGANMI?
+                                                    const isOverdue = isLate && !isGraded;
+
+                                                    return (
+                                                        <div 
+                                                            key={taskIdx}
+                                                            onClick={() => !isGraded && !isOverdue && toggleTaskCompletion(lesson.id, taskIdx, task.completed)} 
+                                                            className={`flex items-center justify-between p-3 rounded-xl border transition-all active:scale-98 cursor-pointer
+                                                                ${isGraded 
+                                                                    ? 'bg-indigo-50 border-indigo-200' 
+                                                                    : (isOverdue 
+                                                                        ? 'bg-red-50 border-red-200 shadow-sm' 
+                                                                        : (task.completed ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-200 hover:border-indigo-300'))}`}
+                                                        >
+                                                            <div className="flex items-center gap-3">
+                                                                {/* ICON */}
+                                                                <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all 
+                                                                    ${isGraded ? 'bg-indigo-500 border-indigo-500' : (isOverdue ? 'bg-red-100 border-red-300 text-red-500' : (task.completed ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'))}`}>
+                                                                    
+                                                                    {isGraded ? <CheckCircle2 size={14} className="text-white" /> : 
+                                                                     isOverdue ? <X size={14} /> :
+                                                                     task.completed && <CheckSquare size={14} className="text-white" />}
+                                                                </div>
+                                                                
+                                                                {/* MATN */}
+                                                                <span className={`text-xs font-bold leading-tight ${isGraded ? 'text-indigo-700' : (isOverdue ? 'text-red-700' : (task.completed ? 'text-emerald-700 line-through opacity-70' : 'text-slate-700'))}`}>
+                                                                    {task.text}
+                                                                </span>
+                                                            </div>
+
+                                                            {/* 🔥 COUNTDOWN (Agar vaqt o'tgan bo'lsa va baho yo'q bo'lsa) */}
+                                                            {isOverdue && (
+                                                                <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-100 text-red-600 text-[9px] border border-red-200">
+                                                                    <Clock size={10} />
+                                                                    <CountdownTimer deadline={lateDeadline} type="danger" />
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                        <span className={`text-xs font-bold leading-tight ${task.completed ? 'text-emerald-700 line-through opacity-70' : 'text-slate-700'}`}>
-                                                            {task.text}
-                                                        </span>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         ) : (
                                             <p className="text-[10px] text-slate-400 font-bold mt-2 italic flex items-center gap-1"><Layers size={12}/> Vazifa ro'yxati yo'q</p>
                                         )}
 
                                     </div>
-                                    {isProblematic ? <AlertCircle className="text-red-500 animate-pulse shrink-0" size={20} /> : <BookOpen className="text-slate-200 shrink-0" size={20} />}
                                 </div>
-                                {isProblematic && <div className="mt-3 pt-3 border-t border-red-100 flex items-center gap-2 text-red-500 font-bold text-[10px] uppercase"><AlertCircle size={12} /> {isMissing ? "Topshirilmagan" : "Qayta topshirish kerak"}</div>}
                             </div>
                             );
                         })}
@@ -682,28 +796,22 @@ const StudentDashboard = () => {
                         daysLeft = Math.ceil((deadline - new Date()) / (1000 * 60 * 60 * 24));
                     }
                     
-                    // 🔥 Task nomini aniqlash (Text maydonidan yoki Comment dan)
-                    // Endi "Text" aniq ko'rsatiladi.
-                    const specificTaskName = g.taskName || g.comment || "Umumiy vazifa";
-
                     return (
                     <div key={i} className={`p-3 rounded-2xl border bg-white/90 backdrop-blur-md shadow-sm flex flex-col gap-3 ${isRetakeNeeded ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-100'}`}>
                         <div className="flex items-center justify-between gap-3">
                             <div className="flex-1 min-w-0 pr-2">
                                 <div className="flex items-center gap-2 mb-1">
                                     <span className="text-[9px] font-bold text-slate-400 uppercase bg-slate-100 px-1.5 py-0.5 rounded-md">{g.dateStr}</span>
-                                    {g.type && <span className="text-[8px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md uppercase">{g.type}</span>}
+                                    {g.type && <span className="text-[15px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md uppercase">{g.type}</span>}
                                 </div>
                                 
-                                {/* 🔥 MAVZU (TOPIC) - TEPADA, KATTA */}
                                 <h3 className="text-xs font-black text-slate-700 leading-tight mb-1 truncate">
                                     {g.comment || 'Mavzu'}
                                 </h3>
                                 
-                                {/* 🔥 ANIQ VAZIFA (TEXT) - PASTIDA, AJRATILGAN */}
                                 <div className="flex items-center gap-1.5 mt-1">
-                                    <Bookmark size={12} className="text-indigo-400 shrink-0"/>
-                                    <p className="text-[10px] font-medium text-slate-500 line-clamp-1 leading-snug">
+                                    <Bookmark size={15} className="text-indigo-400 shrink-0"/>
+                                    <p className="text-[15px] font-bold text-slate-500 line-clamp-1 leading-snug">
                                         {g.taskType || "Umumiy vazifa"}
                                     </p>
                                 </div>
@@ -711,7 +819,6 @@ const StudentDashboard = () => {
                                 {g.feedback && <p className="text-[10px] text-slate-400 mt-1 italic flex items-center gap-1 line-clamp-1"><MessageCircle size={10}/> "{g.feedback}"</p>}
                             </div>
                             
-                            {/* BAHO KARTASI - IXCHAM VA KATTA RAQAM */}
                             <div className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl shrink-0 ${g.score >= 80 ? 'bg-emerald-100 text-emerald-600' : g.score <= 60 ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
                                 <span className="text-2xl font-black tracking-tighter">{g.score}</span>
                                 <span className="text-[8px] font-bold uppercase opacity-60">%</span>
@@ -721,7 +828,7 @@ const StudentDashboard = () => {
                         {isRetakeNeeded && g.retakeDeadline && g.status !== 'retake_submitted' && (
                             <div className="mt-1 pt-2 border-t border-amber-100 flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1 text-amber-600"><Timer size={12} /><span className="text-[9px] font-black uppercase flex items-center gap-1">Qoldi: <CountdownTimer deadline={g.retakeDeadline} /></span></div>
-                                <button onClick={() => submitRetake(g.id)} disabled={daysLeft !== null && daysLeft <= 0} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${(daysLeft !== null && daysLeft <= 0) ? 'bg-slate-200 text-slate-400' : 'bg-amber-500 text-white shadow-lg shadow-amber-200 active:scale-95'}`}>Topshirish</button>
+                                <button onClick={() => submitRetake(g.id)} disabled={daysLeft !== null && daysLeft < 0} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${(daysLeft !== null && daysLeft < 0) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-amber-500 text-white shadow-lg shadow-amber-200 active:scale-95'}`}>Topshirish</button>
                             </div>
                         )}
                         {g.status === 'retake_submitted' && <div className="mt-1 pt-2 border-t border-indigo-50 flex items-center gap-2 text-indigo-500"><CheckCircle2 size={12}/> <span className="text-[9px] font-black uppercase">Tekshirilmoqda</span></div>}

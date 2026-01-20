@@ -3,7 +3,8 @@ import {
   Trophy, ArrowRight, Home, 
   BrainCircuit, Shuffle, Loader2, Eraser, Zap, Lightbulb 
 } from 'lucide-react';
-import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
+// 🔥 'collection', 'query', 'where', 'getDocs' qo'shildi
+import { doc, getDoc, updateDoc, increment, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 
@@ -27,19 +28,13 @@ const WordGame = () => {
   const [userGuess, setUserGuess] = useState([]);
   const [feedback, setFeedback] = useState(null);
   
-  // 🔥 BLOKLASH STATE (Anti-Spam)
   const [isProcessing, setIsProcessing] = useState(false);
-
-  // 🔥 ANIMATSIYALAR
   const [showXpAnim, setShowXpAnim] = useState(false);
   const [xpChange, setXpChange] = useState(0);
 
-  // 🔥 HINT SOZLAMALARI
   const HINT_COST = 20;
-
   const timersRef = useRef([]);
 
-  // --- HAPTIC FEEDBACK ---
   const triggerHaptic = (type) => {
     if (navigator.vibrate) {
         if (type === 'tap') navigator.vibrate(10);
@@ -55,6 +50,7 @@ const WordGame = () => {
     };
   }, []);
 
+  // 🔥 XP ni to'g'ri o'qib olish (Auth ID yoki Doc ID orqali)
   useEffect(() => {
     const initGame = async () => {
         const user = auth.currentUser;
@@ -64,15 +60,48 @@ const WordGame = () => {
             const gameSnap = await getDoc(gameRef);
             if (gameSnap.exists()) setGameData(gameSnap.data());
             
-            const studentRef = doc(db, "students", user.uid);
-            const unsub = onSnapshot(studentRef, (docSnap) => {
-                if(docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
-            });
-            return () => unsub();
+            // 1. O'quvchining haqiqiy Document ID sini topamiz
+            const q = query(collection(db, "students"), where("uid", "==", user.uid));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+                const studentDoc = querySnapshot.docs[0];
+                // Haqiqiy ID orqali tinglaymiz
+                const unsub = onSnapshot(doc(db, "students", studentDoc.id), (docSnap) => {
+                    if(docSnap.exists()) setTotalXp(docSnap.data().gameXp || 0);
+                });
+                return () => unsub();
+            }
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
     initGame();
   }, []);
+
+  // 🔥🔥🔥 YANGI: XP ni XAVFSIZ YANGILASH FUNKSIYASI 🔥🔥🔥
+  // Bu funksiya Document ID va Auth ID har xil bo'lsa ham ishlaydi
+  const updateStudentXP = async (amount) => {
+      try {
+          const user = auth.currentUser;
+          if (!user) return;
+
+          // 1. Bazadan shu userga tegishli hujjatni qidiramiz
+          const q = query(collection(db, "students"), where("uid", "==", user.uid));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+              const studentDoc = querySnapshot.docs[0];
+              const studentRef = doc(db, "students", studentDoc.id);
+              
+              // 2. O'sha topilgan ID ga yozamiz
+              await updateDoc(studentRef, { gameXp: increment(amount) });
+              console.log(`XP yangilandi: ${amount}`);
+          } else {
+              console.error("O'quvchi bazadan topilmadi!");
+          }
+      } catch (error) {
+          console.error("XP xatosi:", error);
+      }
+  };
 
   const shuffleArray = (array) => {
     let arr = [...array];
@@ -101,7 +130,6 @@ const WordGame = () => {
 
   const loadWord = (wordObj) => {
       setCurrentWordObj(wordObj);
-      // Harflarni ID bilan yaratamiz, shunda bir xil harflar bo'lsa ham ajrata olamiz
       const letters = wordObj.word.split('').map((l, i) => ({ id: i, char: l, status: 'available' }));
       setScrambledLetters(shuffleArray(letters)); 
       setUserGuess([]);
@@ -144,48 +172,37 @@ const WordGame = () => {
       setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
   };
 
-  // 🔥 HINT (YORDAM) FUNKSIYASI
+  // --- HINT ---
   const useHint = () => {
-    // 1. Validatsiyalar
     if (isProcessing) return;
     if (totalXp < HINT_COST) {
         alert("XP yetarli emas! Yordam olish uchun kamida 20 XP kerak.");
         return;
     }
-    // Agar barcha kataklar to'lgan bo'lsa
-    if (userGuess.length >= currentWordObj.word.length) {
-        return; // Yoki noto'g'ri harfni o'chirish logikasini qo'shish mumkin
-    }
+    if (userGuess.length >= currentWordObj.word.length) return;
 
     triggerHaptic('hint');
-    setIsProcessing(true); // Qisqa vaqtga bloklash
+    setIsProcessing(true);
 
-    // 2. Kerakli harfni topish
-    const targetChar = currentWordObj.word[userGuess.length]; // Hozirgi kerak bo'lgan harf
-    
-    // Mavjud harflar ichidan keraklisini topamiz
+    const targetChar = currentWordObj.word[userGuess.length]; 
     const availableLetter = scrambledLetters.find(l => l.status === 'available' && l.char === targetChar);
 
     if (availableLetter) {
-        // 3. XP ni ayirish
         setXpChange(-HINT_COST);
         setSessionXp(prev => prev - HINT_COST);
         setShowXpAnim(true);
         
-        const user = auth.currentUser;
-        if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(-HINT_COST) }).catch(console.error);
+        // 🔥 YANGI FUNKSIYA ISHLATILDI
+        updateStudentXP(-HINT_COST);
 
-        // 4. Harfni joylashtirish
         setScrambledLetters(prev => prev.map(l => l.id === availableLetter.id ? {...l, status: 'used'} : l));
         setUserGuess(prev => [...prev, availableLetter]);
 
-        // Animatsiyani yopish va blokni ochish
         setTimeout(() => {
             setShowXpAnim(false);
             setIsProcessing(false);
         }, 800);
     } else {
-        // Agar kerakli harf allaqachon noto'g'ri joyga qo'yilgan bo'lsa
         alert("Kerakli harf allaqachon ishlatilgan! Iltimos, noto'g'ri harflarni o'chiring.");
         setIsProcessing(false);
     }
@@ -198,7 +215,6 @@ const WordGame = () => {
       setIsProcessing(true);
 
       const word = userGuess.map(l => l.char).join('');
-      const user = auth.currentUser;
       const baseReward = gameData.levels[level].xpReward || 10;
 
       if(word === currentWordObj.word) {
@@ -209,7 +225,8 @@ const WordGame = () => {
           setSessionXp(prev => prev + baseReward);
           setShowXpAnim(true);
 
-          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(baseReward) }).catch(console.error);
+          // 🔥 YANGI FUNKSIYA ISHLATILDI
+          updateStudentXP(baseReward);
           
           const timer = setTimeout(nextWord, 1500);
           timersRef.current.push(timer);
@@ -224,7 +241,8 @@ const WordGame = () => {
           setSessionXp(prev => prev - penalty);
           setShowXpAnim(true);
 
-          if(user) updateDoc(doc(db, "students", user.uid), { gameXp: increment(-penalty) }).catch(console.error);
+          // 🔥 YANGI FUNKSIYA ISHLATILDI
+          updateStudentXP(-penalty);
 
           const timer = setTimeout(() => {
               setFeedback(null);
@@ -406,7 +424,7 @@ const WordGame = () => {
                       <Shuffle size={20}/>
                   </button>
                   
-                  {/* 🔥 HINT BUTTON */}
+                  {/* HINT BUTTON */}
                   <button 
                     onClick={useHint} 
                     disabled={isProcessing || totalXp < HINT_COST || userGuess.length === wordLength}
