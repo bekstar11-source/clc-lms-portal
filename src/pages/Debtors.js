@@ -3,9 +3,9 @@ import { db, auth } from '../firebase';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { 
-  AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Loader2, 
+  AlertCircle, CheckCircle2, ChevronDown, Loader2, 
   AlertTriangle, BookOpen, Calendar, RefreshCw,
-  AlertOctagon, XCircle, ArrowRight, Search, Timer, Flame // 🔥 Flame ikonkasini qo'shdik
+  AlertOctagon, XCircle, ArrowRight, Search, Timer, Flame 
 } from 'lucide-react';
 
 // --- HELPER: COUNTDOWN TIMER ---
@@ -57,8 +57,9 @@ const Debtors = () => {
   const [expandedGroup, setExpandedGroup] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   
-  // 🔥🔥🔥 YANGI STATE: Shoshilinch qarzdorlar ro'yxati
+  // 🔥 Critical Retakes (2 kun qolganlar)
   const [urgentList, setUrgentList] = useState([]);
+  const [isUrgentExpanded, setIsUrgentExpanded] = useState(true);
 
   useEffect(() => {
     const loadDebtors = async (forceRefresh = false) => {
@@ -73,7 +74,7 @@ const Debtors = () => {
             const parsed = JSON.parse(cachedData);
             setReportData(parsed);
             setFilteredData(parsed);
-            processUrgentDebts(parsed); // 🔥 Keshdan olinganda ham hisoblash
+            processUrgentDebts(parsed); 
             setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
             setLoading(false);
             return;
@@ -136,7 +137,6 @@ const Debtors = () => {
                         if (grade?.retakeDeadline) {
                              const d = grade.retakeDeadline.toDate ? grade.retakeDeadline.toDate() : new Date(grade.retakeDeadline);
                              deadlineStr = d.toISOString();
-                             // Eng yaqin muddatni olish
                              if (!lessonDeadline || d < new Date(lessonDeadline)) lessonDeadline = deadlineStr;
                         }
 
@@ -145,6 +145,11 @@ const Debtors = () => {
                             failedTasks.push({ name: taskName, status: 'missing', score: 0 });
                         } else if (grade.score < 60) {
                             hasLow = true;
+                            if (!deadlineStr) {
+                                const defDate = new Date(lesson.date);
+                                defDate.setDate(defDate.getDate() + 7);
+                                deadlineStr = defDate.toISOString();
+                            }
                             failedTasks.push({ name: taskName, status: 'low', score: grade.score, deadline: deadlineStr });
                         }
                     });
@@ -179,7 +184,7 @@ const Debtors = () => {
 
         setReportData(finalData);
         setFilteredData(finalData);
-        processUrgentDebts(finalData); // 🔥 Urgentlarni hisoblash
+        processUrgentDebts(finalData); 
 
         localStorage.setItem('debtorsCachev2', JSON.stringify(finalData));
         localStorage.setItem('debtorsTimev2', new Date().getTime().toString());
@@ -191,22 +196,23 @@ const Debtors = () => {
     loadDebtors();
   }, []);
 
-  // 🔥🔥🔥 YANGI FUNKSIYA: 2 kun qolganlarni ajratib olish 🔥🔥🔥
+  // 🔥 SHOSHILINCH (2 KUN) QOLGANLARNI AJRATISH
   const processUrgentDebts = (data) => {
       const urgent = [];
-      const twoDaysInMs = 2 * 24 * 60 * 60 * 1000;
+      const twoDaysInMs = 48 * 60 * 60 * 1000; // 48 soat
       const now = new Date();
 
       data.forEach(group => {
           group.debtors.forEach(student => {
               student.debts.forEach(debt => {
                   debt.tasks.forEach(task => {
-                      // Faqat deadline bor va (score < 60) bo'lganlar
-                      if (task.deadline && task.status === 'low') {
+                      // 1. Faqat 'low' (past baho)
+                      // 2. Deadline bor
+                      if (task.status === 'low' && task.deadline) {
                           const deadlineDate = new Date(task.deadline);
                           const diff = deadlineDate - now;
 
-                          // Agar 2 kundan kam qolgan bo'lsa yoki vaqt o'tib ketgan bo'lsa
+                          // 3. 48 soatdan kam qolgan yoki vaqti o'tgan
                           if (diff <= twoDaysInMs) {
                               urgent.push({
                                   studentName: student.studentName,
@@ -217,7 +223,7 @@ const Debtors = () => {
                                   taskName: task.name,
                                   deadline: task.deadline,
                                   score: task.score,
-                                  diff: diff // Saralash uchun kerak bo'ladi
+                                  diff: diff // Saralash uchun
                               });
                           }
                       }
@@ -226,7 +232,7 @@ const Debtors = () => {
           });
       });
 
-      // Eng oz vaqt qolganlarni yuqoriga chiqaramiz
+      // Eng oz vaqt qolganlar (yoki o'tib ketganlar) birinchi chiqadi
       urgent.sort((a, b) => a.diff - b.diff);
       setUrgentList(urgent);
   };
@@ -263,9 +269,17 @@ const Debtors = () => {
     setExpandedGroup(expandedGroup === groupId ? null : groupId);
   };
 
+  // Urgent Accordion Toggle
+  const toggleUrgent = () => {
+    if (navigator.vibrate) navigator.vibrate(10);
+    setIsUrgentExpanded(!isUrgentExpanded);
+  };
+
   const navigateToStudent = (groupId, studentId, lessonId) => {
       navigate(`/group/${groupId}`, { state: { openStudentId: studentId, highlightLessonId: lessonId } });
   };
+
+  const getAvatarUrl = (seed) => `https://api.dicebear.com/7.x/notionists/svg?seed=${seed || 'default'}&backgroundColor=e0e7ff,c7d2fe`;
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40}/></div>;
 
@@ -287,7 +301,6 @@ const Debtors = () => {
             <button onClick={refreshData} className="p-3 bg-white text-indigo-600 rounded-xl shadow-sm border border-indigo-100 active:scale-95 transition-transform"><RefreshCw size={18} /></button>
          </div>
 
-         {/* QIDIRUV MAYDONI */}
          <div className="relative group">
              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
              <input 
@@ -300,50 +313,65 @@ const Debtors = () => {
          </div>
        </div>
 
-       {/* 🔥🔥🔥 SHOSHILINCH (URGENT) QATORI 🔥🔥🔥 */}
+       {/* 🔥🔥🔥 CRITICAL (URGENT) ACCORDION 🔥🔥🔥 */}
        {urgentList.length > 0 && (
-           <div className="mb-6 animate-in fade-in slide-in-from-top-4 duration-500">
-               <div className="flex items-center gap-2 mb-3">
-                   <Flame size={18} className="text-orange-500 animate-pulse" />
-                   <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Critical Retakes (&lt; 48h)</h2>
-                   <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{urgentList.length}</span>
+           <div className="mb-6 bg-white rounded-[2rem] border border-orange-200 shadow-lg shadow-orange-100/50 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+               
+               {/* HEADER */}
+               <div 
+                 onClick={toggleUrgent}
+                 className={`p-4 flex items-center justify-between cursor-pointer transition-colors ${isUrgentExpanded ? 'bg-orange-50/50 border-b border-orange-100' : 'hover:bg-orange-50/30'}`}
+               >
+                   <div className="flex items-center gap-2">
+                       <Flame size={20} className="text-orange-500 animate-pulse" />
+                       <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Critical Retakes (&lt; 48h)</h2>
+                       <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{urgentList.length}</span>
+                   </div>
+                   <div className={`p-2 rounded-full transition-transform duration-300 ${isUrgentExpanded ? 'rotate-180 bg-orange-100 text-orange-600' : 'bg-slate-50 text-slate-400'}`}>
+                        <ChevronDown size={16}/>
+                   </div>
                </div>
                
-               {/* Gorizontal scroll bo'ladigan ro'yxat */}
-               <div className="flex overflow-x-auto gap-3 pb-4 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide snap-x">
-                   {urgentList.map((item, index) => (
-                       <div 
-                           key={index}
-                           onClick={() => navigateToStudent(item.groupId, item.studentId, item.lessonId)}
-                           className="snap-center min-w-[260px] bg-white p-4 rounded-2xl border-l-4 border-l-orange-500 border-y border-r border-slate-100 shadow-lg shadow-orange-100/50 active:scale-95 transition-transform cursor-pointer relative overflow-hidden"
-                       >
-                           {/* Background effect */}
-                           <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+               {/* BODY */}
+               <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${isUrgentExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                   <div className="overflow-hidden">
+                       <div className="p-4 bg-white/50">
+                           <div className="flex overflow-x-auto gap-3 pb-2 -mx-2 px-2 scrollbar-hide snap-x">
+                               {urgentList.map((item, index) => (
+                                   <div 
+                                       key={index}
+                                       onClick={() => navigateToStudent(item.groupId, item.studentId, item.lessonId)}
+                                       className="snap-center min-w-[260px] bg-white p-4 rounded-2xl border-l-4 border-l-orange-500 border-y border-r border-slate-100 shadow-sm hover:shadow-md active:scale-95 transition-all cursor-pointer relative overflow-hidden"
+                                   >
+                                       <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
 
-                           <div className="flex justify-between items-start mb-2 relative z-10">
-                               <div>
-                                   <h4 className="font-black text-slate-800 text-sm truncate w-40">{item.studentName}</h4>
-                                   <p className="text-[10px] font-bold text-slate-400 uppercase">{item.groupName}</p>
-                               </div>
-                               <div className="bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 flex flex-col items-center">
-                                   <span className="text-xs font-black text-orange-600">{item.score}%</span>
-                               </div>
-                           </div>
+                                       <div className="flex justify-between items-start mb-2 relative z-10">
+                                           <div>
+                                               <h4 className="font-black text-slate-800 text-sm truncate w-40">{item.studentName}</h4>
+                                               <p className="text-[10px] font-bold text-slate-400 uppercase">{item.groupName}</p>
+                                           </div>
+                                           <div className="bg-orange-50 px-2 py-1 rounded-lg border border-orange-100 flex flex-col items-center">
+                                               <span className="text-xs font-black text-orange-600">{item.score}%</span>
+                                           </div>
+                                       </div>
 
-                           <div className="flex items-center justify-between relative z-10">
-                               <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                                   <AlertCircle size={12} className="text-orange-500 shrink-0"/>
-                                   <span className="text-[10px] font-medium text-slate-600 truncate">{item.taskName}</span>
-                               </div>
-                               <CountdownTimer deadline={item.deadline} />
+                                       <div className="flex items-center justify-between relative z-10">
+                                           <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                               <AlertCircle size={12} className="text-orange-500 shrink-0"/>
+                                               <span className="text-[10px] font-medium text-slate-600 truncate">{item.taskName}</span>
+                                           </div>
+                                           <CountdownTimer deadline={item.deadline} />
+                                       </div>
+                                   </div>
+                               ))}
                            </div>
                        </div>
-                   ))}
+                   </div>
                </div>
            </div>
        )}
 
-       {/* ASOSIY CONTENT (Guruhlar ro'yxati) */}
+       {/* MAIN LIST (Guruhlar) */}
        <div className="space-y-4">
          {filteredData.length === 0 ? (
            <div className="bg-white p-10 rounded-[2rem] border border-slate-100 text-center shadow-sm flex flex-col items-center">
@@ -437,7 +465,7 @@ const Debtors = () => {
                                                           ) : (
                                                               <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">Missing</span>
                                                           )}
-                                                          {/* TIMER */}
+                                                          {/* COUNTDOWN TIMER */}
                                                           {task.status === 'low' && task.deadline && <CountdownTimer deadline={task.deadline} />}
                                                       </div>
                                                   </div>

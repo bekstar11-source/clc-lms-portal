@@ -9,10 +9,12 @@ import {
   ShieldCheck, Search, Loader2, LogOut, ChevronDown, 
   LayoutGrid, Plus, UserPlus, Users, Filter, CheckCircle, Trash2,
   BarChart3, Megaphone, Key, Pencil, X, Target, Sparkles, Layers, GraduationCap, Briefcase,
-  Gamepad2, MessageCircle, UserCheck // UserCheck ikonkasi qo'shildi
+  Gamepad2, MessageCircle, UserCheck, ArchiveRestore // 🔥 ArchiveRestore qo'shildi
 } from 'lucide-react';
 
 import SystemHealth from '../components/SystemHealth'; 
+// 🔥 Arxiv komponentini import qilish (Fayl yaratilgan bo'lishi kerak)
+import ArchivedStudents from '../components/ArchivedStudents'; 
 
 const GradientText = ({ children, from, to }) => (
   <span className={`bg-clip-text text-transparent bg-gradient-to-r ${from} ${to}`}>
@@ -43,11 +45,14 @@ const AdminPanel = () => {
   const [targetType, setTargetType] = useState('all'); 
   const [selectedTargetId, setSelectedTargetId] = useState('');
 
-  // --- EDIT USER MODAL STATES ---
+  // --- MODAL STATES ---
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('student');
+  
+  // 🔥 YANGI: ARXIV MODAL STATE
+  const [showArchive, setShowArchive] = useState(false);
 
   // 1. DATA FETCHING
   const fetchData = async () => {
@@ -79,12 +84,15 @@ const AdminPanel = () => {
   useEffect(() => { fetchData(); }, []);
 
   // --- DERIVED DATA ---
-  const teachers = users.filter(u => u.role === 'teacher');
+  const teachers = users.filter(u => u.role === 'teacher' && !u.isArchived); // 🔥 Arxivlangan o'qituvchilarni ham yashiramiz
+  
   const displayedStudents = (() => {
-    let filtered = users; 
+    // 🔥 FILTR: Avval arxivlanganlarni chiqarib tashlaymiz
+    let filtered = users.filter(u => !u.isArchived); 
+    
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
-      filtered = filtered.filter(u => u.name.toLowerCase().includes(lower) || u.email.toLowerCase().includes(lower));
+      filtered = filtered.filter(u => u.name?.toLowerCase().includes(lower) || u.email?.toLowerCase().includes(lower));
     }
     if (studentFilter === 'new') return filtered.filter(u => !u.groupId && (u.role === 'student' || !u.role));
     if (studentFilter === 'assigned') return filtered.filter(u => u.groupId);
@@ -92,17 +100,30 @@ const AdminPanel = () => {
   })();
 
   const stats = {
-      totalStudents: users.filter(u => u.role === 'student' || !u.role).length,
+      totalStudents: users.filter(u => (u.role === 'student' || !u.role) && !u.isArchived).length,
       totalTeachers: teachers.length,
-      newStudents: users.filter(u => (u.role === 'student' || !u.role) && !u.groupId).length,
+      newStudents: users.filter(u => (u.role === 'student' || !u.role) && !u.groupId && !u.isArchived).length,
       totalGroups: groups.length
   };
 
   // ================= ACTIONS =================
-  const handleDeleteUser = async (userId, userName) => {
-    if(!window.confirm(`DIQQAT!\n"${userName}" ni butunlay o'chirib yubormoqchimisiz?`)) return;
+  
+  // 🔥 O'ZGARTIRILDI: DELETE -> ARCHIVE
+  const handleArchiveUser = async (userId, userName) => {
+    if(!window.confirm(`DIQQAT!\n"${userName}" ni arxivga o'tkazmoqchimisiz?\n(Ma'lumotlar saqlanib qoladi va qayta tiklash mumkin)`)) return;
     setProcessingId(userId);
-    try { await deleteDoc(doc(db, "students", userId)); setUsers(prev => prev.filter(u => u.id !== userId)); } catch (e) { alert(e.message); } finally { setProcessingId(null); }
+    try { 
+        const userRef = doc(db, "students", userId);
+        // deleteDoc emas, updateDoc ishlatamiz
+        await updateDoc(userRef, { 
+            isArchived: true, 
+            archivedAt: new Date().toISOString() 
+        }); 
+        
+        // Local stateni yangilaymiz (Remove from list)
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, isArchived: true } : u));
+        
+    } catch (e) { alert(e.message); } finally { setProcessingId(null); }
   };
   
   const handleResetPassword = async (email) => {
@@ -149,7 +170,6 @@ const AdminPanel = () => {
       setProcessingId(gid); try { await updateDoc(doc(db, "groups", gid), { teacherId: tid }); setGroups(p=>p.map(g=>g.id===gid?{...g, teacherId: tid}:g)); } catch(e){alert(e.message)} finally{setProcessingId(null)}
   };
 
-  // 🔥 NEW: ASSIGN ASSISTANT
   const assignAssistantToGroup = async (gid, tid) => {
       setProcessingId(gid); 
       try { 
@@ -203,22 +223,13 @@ const AdminPanel = () => {
             </div>
           </div>
 
-          {/* NAVIGATSIYA TUGMALARI */}
           <div className="flex gap-2">
-             <button 
-                onClick={() => navigate('/chat')} 
-                className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50"
-             >
+             <button onClick={() => navigate('/chat')} className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50">
                 <MessageCircle size={18} /> Xabarlar
              </button>
-
-             <button 
-                onClick={() => navigate('/admin/game-builder')} 
-                className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50"
-             >
+             <button onClick={() => navigate('/admin/game-builder')} className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50">
                 <Gamepad2 size={18} /> O'yin Sozlamalari
              </button>
-
              <button onClick={handleLogout} className="bg-white/80 p-3.5 rounded-2xl hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-all shadow-sm border border-white/50 group">
                 <LogOut size={20} className="group-hover:-translate-x-1 transition-transform"/>
              </button>
@@ -292,11 +303,15 @@ const AdminPanel = () => {
         {activeTab === 'students' && (
            <div>
               <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4 rounded-t-[3rem]">
-                 <div className="flex bg-white/70 p-1.5 rounded-2xl shadow-sm border border-white/50">
+                 <div className="flex flex-wrap gap-2 bg-white/70 p-1.5 rounded-2xl shadow-sm border border-white/50">
                     <button onClick={() => setStudentFilter('new')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${studentFilter==='new'?'bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-md':'text-slate-500 hover:bg-white'}`}><UserPlus size={14}/> Yangi ({stats.newStudents})</button>
                     <button onClick={() => setStudentFilter('assigned')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${studentFilter==='assigned'?'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md':'text-slate-500 hover:bg-white'}`}><CheckCircle size={14}/> Guruhlangan</button>
                     <button onClick={() => setStudentFilter('all')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all ${studentFilter==='all'?'bg-gradient-to-r from-slate-700 to-slate-800 text-white shadow-md':'text-slate-500 hover:bg-white'}`}><Filter size={14}/> Barchasi</button>
+                    
+                    {/* 🔥 YANGI: ARXIV TUGMASI */}
+                    <button onClick={() => setShowArchive(true)} className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all bg-amber-500 text-white hover:bg-amber-600 shadow-md"><ArchiveRestore size={14}/> Arxiv</button>
                  </div>
+                 
                  <div className="relative w-full md:w-80 group">
                     <Search className="absolute left-5 top-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18}/>
                     <input className="w-full pl-12 pr-6 py-3 rounded-2xl border border-slate-200 bg-white/80 font-bold text-xs outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-sm transition-all" placeholder="Ism yoki email..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}/>
@@ -338,7 +353,9 @@ const AdminPanel = () => {
                           <div className="flex gap-2 shrink-0 bg-slate-100/50 p-1.5 rounded-2xl">
                              <button onClick={()=>openEditModal(user)} className="p-2.5 text-slate-400 hover:bg-white hover:text-indigo-600 rounded-xl transition-all shadow-sm" title="Tahrirlash"><Pencil size={16}/></button>
                              <button onClick={()=>handleResetPassword(user.email)} className="p-2.5 text-slate-400 hover:bg-white hover:text-amber-500 rounded-xl transition-all shadow-sm" title="Parolni tiklash"><Key size={16}/></button>
-                             <button onClick={()=>handleDeleteUser(user.id, user.name)} className="p-2.5 text-slate-400 hover:bg-white hover:text-rose-500 rounded-xl transition-all shadow-sm" title="O'chirish"><Trash2 size={16}/></button>
+                             
+                             {/* 🔥 DELETE -> ARCHIVE */}
+                             <button onClick={()=>handleArchiveUser(user.id, user.name)} className="p-2.5 text-slate-400 hover:bg-white hover:text-rose-500 rounded-xl transition-all shadow-sm" title="Arxivlash (O'chirish)"><Trash2 size={16}/></button>
                           </div>
                        </div>
                     </div>
@@ -348,7 +365,7 @@ const AdminPanel = () => {
            </div>
         )}
 
-        {/* GROUPS TAB (UPDATED FOR ASSISTANT) */}
+        {/* GROUPS TAB */}
         {activeTab === 'groups' && (
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
               <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-8 rounded-[2.5rem] shadow-lg shadow-emerald-100/50 border border-emerald-100 h-fit relative overflow-hidden">
@@ -481,6 +498,12 @@ const AdminPanel = () => {
               </div>
           </div>
       )}
+
+      {/* 🔥 YANGI: ARXIV MODAL */}
+      {showArchive && (
+        <ArchivedStudents onClose={() => { setShowArchive(false); fetchData(); }} />
+      )}
+
     </div>
   );
 };

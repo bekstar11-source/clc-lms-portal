@@ -5,11 +5,11 @@ import {
   collection, getDocs, query, where, doc, getDoc, updateDoc, onSnapshot 
 } from 'firebase/firestore';
 import { 
-  LayoutGrid, Sparkles, BookOpen, ChevronRight, LogOut,
+  LayoutGrid, Sparkles, ChevronRight, LogOut, ChevronDown,
   XCircle, AlertTriangle, 
-  Bell, ArrowRight, MessageCircle, RefreshCw, Users, UserCheck
+  Bell, ArrowRight, MessageCircle, RefreshCw, Users, UserCheck 
 } from 'lucide-react';
-import { App } from '@capacitor/app'; // 🔥 BACK TUGMASI UCHUN
+import { App } from '@capacitor/app'; 
 
 // --- SKELETON LOADER ---
 const DashboardSkeleton = () => (
@@ -36,8 +36,11 @@ const TeacherDashboard = () => {
   const [debtors, setDebtors] = useState([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
   
+  // 🔥 YANGI: Tekshiruv garmoshkasi uchun state
+  const [isRetakeExpanded, setIsRetakeExpanded] = useState(true);
+
   const [activeTab, setActiveTab] = useState('groups');
-  const [isExitModalOpen, setIsExitModalOpen] = useState(false); // 🔥 CHIQISH MODALI STATE
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false); 
 
   const triggerHaptic = (type = 'tap') => {
     if (navigator.vibrate) {
@@ -51,30 +54,20 @@ const TeacherDashboard = () => {
     else setActiveTab('groups');
   }, [location.pathname]);
 
-  // 🔥 ANDROID BACK TUGMASI LOGIKASI
+  // ANDROID BACK LOGIKASI
   useEffect(() => {
     const backListener = App.addListener('backButton', () => {
-      // 1. Agar chiqish oynasi ochiq bo'lsa -> Chiqish
-      if (isExitModalOpen) {
-        App.exitApp();
-        return;
-      }
+      if (isExitModalOpen) { App.exitApp(); return; }
 
-      // 2. Agar "Guruhlar" (Asosiy) tabida BO'LMASAK -> Unga qaytamiz
       if (activeTab !== 'groups') {
         setActiveTab('groups');
         triggerHaptic();
-      } 
-      // 3. Agar allaqachon "Guruhlar"da bo'lsak -> Chiqishni so'raymiz
-      else {
+      } else {
         setIsExitModalOpen(true);
         triggerHaptic();
       }
     });
-
-    return () => {
-      backListener.then(h => h.remove());
-    };
+    return () => { backListener.then(h => h.remove()); };
   }, [activeTab, isExitModalOpen]);
 
   // 1. MA'LUMOTLARNI YUKLASH
@@ -85,7 +78,7 @@ const TeacherDashboard = () => {
     if (forceRefresh) setRefreshing(true);
 
     try {
-      const CACHE_KEY = `teacher_dash_${currentUser.uid}`;
+      const CACHE_KEY = `teacher_dash_${currentUser.uid}_v6`; 
       const cached = localStorage.getItem(CACHE_KEY);
 
       if (!forceRefresh && cached) {
@@ -102,14 +95,11 @@ const TeacherDashboard = () => {
       }
 
       const userRef = doc(db, "students", currentUser.uid);
-      
       const mainGroupsQuery = query(collection(db, "groups"), where("teacherId", "==", currentUser.uid));
       const assistGroupsQuery = query(collection(db, "groups"), where("assistantTeacherId", "==", currentUser.uid));
       
       const [userDoc, mainGroupsSnap, assistGroupsSnap] = await Promise.all([
-          getDoc(userRef),
-          getDocs(mainGroupsQuery),
-          getDocs(assistGroupsQuery)
+          getDoc(userRef), getDocs(mainGroupsQuery), getDocs(assistGroupsQuery)
       ]);
 
       let tName = '';
@@ -134,9 +124,7 @@ const TeacherDashboard = () => {
           const qLessons = query(collection(db, "lessons"), where("groupId", "==", grp.id));
 
           const [studSnap, gradesSnap, lessonsSnap] = await Promise.all([
-              getDocs(qStudents), 
-              getDocs(qGrades),
-              getDocs(qLessons)
+              getDocs(qStudents), getDocs(qGrades), getDocs(qLessons)
           ]);
 
           return {
@@ -158,6 +146,7 @@ const TeacherDashboard = () => {
           const studentsMap = {};
           students.forEach(s => studentsMap[s.id] = s.name);
 
+          // 1. Tekshiruvdagilar
           gradeDocs.forEach(d => {
               const g = d.data();
               if (g.status === 'retake_submitted') {
@@ -174,7 +163,9 @@ const TeacherDashboard = () => {
               }
           });
 
+          // 2. O'quvchilarni tahlil qilish (Qarzdorlar uchun)
           const activeLessons = lessons.filter(l => !l.isDelayed);
+
           if (activeLessons.length > 0) {
               students.forEach(student => {
                   const studentGrades = grades.filter(g => g.studentId === student.id);
@@ -182,40 +173,29 @@ const TeacherDashboard = () => {
 
                   activeLessons.forEach(lesson => {
                       const grade = studentGrades.find(g => g.lessonId === lesson.id);
-                      if (grade) {
-                          totalScore += Number(grade.score) || 0;
-                      } else {
-                          totalScore += 0;
-                      }
+                      if (grade) totalScore += Number(grade.score) || 0;
+                      else totalScore += 0;
                   });
 
                   const average = Math.round(totalScore / activeLessons.length);
-
                   if (average < 60) {
                       allDebtors.push({
-                          id: student.id,
-                          name: student.name,
-                          groupId: groupId,
-                          groupName: groupName,
-                          averageScore: average,
-                          avatarSeed: student.avatarSeed
+                          id: student.id, name: student.name, groupId: groupId,
+                          groupName: groupName, averageScore: average, avatarSeed: student.avatarSeed
                       });
                   }
               });
           }
       });
 
-      const sortedAlerts = alerts.sort((a,b) => new Date(b.date) - new Date(a.date));
-      const sortedDebtors = allDebtors.sort((a, b) => a.averageScore - b.averageScore);
-
-      setRetakeAlerts(sortedAlerts);
-      setDebtors(sortedDebtors);
+      setRetakeAlerts(alerts.sort((a,b) => new Date(b.date) - new Date(a.date)));
+      setDebtors(allDebtors.sort((a, b) => a.averageScore - b.averageScore));
 
       const cacheData = {
           teacherName: tName,
           groups: uniqueGroups,
-          retakeAlerts: sortedAlerts,
-          debtors: sortedDebtors
+          retakeAlerts: alerts,
+          debtors: allDebtors
       };
       localStorage.setItem(CACHE_KEY, JSON.stringify({ data: cacheData, timestamp: Date.now() }));
 
@@ -226,19 +206,12 @@ const TeacherDashboard = () => {
     }
   };
 
-  useEffect(() => {
-      fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
-  // 2. REALTIME CHAT ALERTS
+  // 2. REALTIME CHAT
   useEffect(() => {
     if (!auth.currentUser) return;
-
-    const q = query(
-      collection(db, "chats"), 
-      where("participants", "array-contains", auth.currentUser.uid)
-    );
-
+    const q = query(collection(db, "chats"), where("participants", "array-contains", auth.currentUser.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let totalUnread = 0;
       snapshot.docs.forEach(doc => {
@@ -249,18 +222,19 @@ const TeacherDashboard = () => {
       });
       setUnreadMessages(totalUnread);
     });
-
     return () => unsubscribe();
   }, []);
 
-  const handleForceRefresh = () => {
-      triggerHaptic();
-      fetchData(true);
-  };
+  const handleForceRefresh = () => { triggerHaptic(); fetchData(true); };
 
   const handleAlertClick = (alert) => {
       triggerHaptic();
       navigate(`/group/${alert.groupId}`, { state: { openStudentId: alert.studentId, highlightKey: alert.highlightKey } });
+  };
+
+  const toggleRetake = () => {
+      triggerHaptic();
+      setIsRetakeExpanded(!isRetakeExpanded);
   };
 
   const handleRejectRetake = async (e, alertId) => {
@@ -271,15 +245,6 @@ const TeacherDashboard = () => {
           await updateDoc(doc(db, "grades", alertId), { status: 'retake_needed' });
           const newAlerts = retakeAlerts.filter(a => a.id !== alertId);
           setRetakeAlerts(newAlerts);
-          
-          const CACHE_KEY = `teacher_dash_${auth.currentUser.uid}`;
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
-              const { data, timestamp } = JSON.parse(cached);
-              data.retakeAlerts = newAlerts;
-              localStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp }));
-          }
-
           triggerHaptic('success');
       } catch (error) { alert(error.message); }
   };
@@ -291,53 +256,24 @@ const TeacherDashboard = () => {
   return (
     <div className="min-h-screen relative font-sans touch-manipulation pb-28 md:pb-10">
       
-      {/* 1. BACKGROUND IMAGE LAYER */}
+      {/* BACKGROUND */}
       <div className="fixed inset-0 z-0">
-         <div 
-           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-           style={{
-             backgroundImage: "url('https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448')"
-           }}
-         ></div>
-         {/* Oq parda (Overlay) */}
+         <div className="absolute inset-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: "url('https://github.com/user-attachments/assets/1d6178e4-9b57-4c89-bd1d-ef7d30a62448')" }}></div>
          <div className="absolute inset-0 bg-slate-50/70 backdrop-blur-sm"></div>
       </div>
 
-      {/* 2. CONTENT LAYER */}
       <div className="relative z-10">
           
-          {/* --- HEADER --- */}
+          {/* HEADER */}
           <div className="sticky top-0 z-30 bg-white/60 backdrop-blur-xl border-b border-white/40 px-6 py-4 pt-[calc(1rem+env(safe-area-inset-top))] flex justify-between items-center transition-all duration-300 shadow-sm">
             <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1 mb-0.5">
-                  <Sparkles size={10} className="text-indigo-600"/> Teacher Portal
-                </p>
-                <h1 className="text-xl font-black text-slate-800">
-                    Hi, <span className="text-indigo-600">{teacherName.split(' ')[0]}</span>
-                </h1>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1 mb-0.5"><Sparkles size={10} className="text-indigo-600"/> Teacher Portal</p>
+                <h1 className="text-xl font-black text-slate-800">Hi, <span className="text-indigo-600">{teacherName.split(' ')[0]}</span></h1>
             </div>
-
             <div className="flex items-center gap-3">
-                <button 
-                    onClick={handleForceRefresh} 
-                    className={`p-2.5 bg-white/70 text-slate-500 hover:text-indigo-600 rounded-xl shadow-sm border border-white active:scale-95 transition-all ${refreshing ? 'animate-spin text-indigo-600' : ''}`}
-                >
-                    <RefreshCw size={20}/>
-                </button>
-
-                <button 
-                    onClick={() => {triggerHaptic(); navigate('/chat');}} 
-                    className="hidden md:flex p-2.5 bg-white/70 text-slate-500 hover:text-indigo-600 rounded-xl shadow-sm border border-white active:scale-95 transition-all relative"
-                >
-                    <MessageCircle size={20}/>
-                    {unreadMessages > 0 && (
-                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-                    )}
-                </button>
-
-                <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 overflow-hidden shadow-sm">
-                    <img src={getAvatarUrl(teacherName)} alt="me" className="w-full h-full object-cover"/>
-                </div>
+                <button onClick={handleForceRefresh} className={`p-2.5 bg-white/70 text-slate-500 hover:text-indigo-600 rounded-xl shadow-sm border border-white active:scale-95 transition-all ${refreshing ? 'animate-spin text-indigo-600' : ''}`}><RefreshCw size={20}/></button>
+                <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="hidden md:flex p-2.5 bg-white/70 text-slate-500 hover:text-indigo-600 rounded-xl shadow-sm border border-white active:scale-95 transition-all relative"><MessageCircle size={20}/>{unreadMessages > 0 && (<span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>)}</button>
+                <div className="w-10 h-10 rounded-full bg-indigo-100 border border-indigo-200 overflow-hidden shadow-sm"><img src={getAvatarUrl(teacherName)} alt="me" className="w-full h-full object-cover"/></div>
             </div>
           </div>
 
@@ -347,60 +283,61 @@ const TeacherDashboard = () => {
             {activeTab === 'groups' && (
                 <div className="animate-in fade-in slide-in-from-left-4 duration-500">
                     
-                    {/* Retake Alerts */}
+                    {/* 🔥 1. TEKSHIRUV (Retake Alerts) - GARMOSHKA */}
                     {retakeAlerts.length > 0 && (
-                        <div className="mb-8">
-                            <div className="flex items-center justify-between mb-3 px-2">
+                        <div className="mb-6 bg-white rounded-[2rem] border border-indigo-200 shadow-lg shadow-indigo-100/50 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+                            
+                            {/* HEADER */}
+                            <div 
+                              onClick={toggleRetake}
+                              className={`p-4 flex items-center justify-between cursor-pointer transition-colors ${isRetakeExpanded ? 'bg-indigo-50/50 border-b border-indigo-100' : 'hover:bg-indigo-50/30'}`}
+                            >
                                 <div className="flex items-center gap-2">
-                                    <div className="relative"><Bell size={18} className="text-indigo-600" /><span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span></div>
-                                    <h2 className="text-xs font-black text-slate-600 uppercase tracking-widest">Tekshiruv ({retakeAlerts.length})</h2>
+                                    <div className="relative"><Bell size={20} className="text-indigo-600" /><span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse border-2 border-white"></span></div>
+                                    <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Tekshiruv</h2>
+                                    <span className="bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full text-[10px] font-bold">{retakeAlerts.length}</span>
                                 </div>
-                                <span className="text-[9px] font-bold text-slate-500 uppercase">Swipe &rarr;</span>
+                                <div className={`p-2 rounded-full transition-transform duration-300 ${isRetakeExpanded ? 'rotate-180 bg-indigo-100 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
+                                     <ChevronDown size={16}/>
+                                </div>
                             </div>
-                            <div className="flex overflow-x-auto gap-3 pb-4 -mx-4 px-6 scrollbar-hide snap-x">
-                                {retakeAlerts.map((alert, idx) => (
-                                    <div key={idx} onClick={() => handleAlertClick(alert)} className="snap-center shrink-0 w-[260px] bg-white/80 backdrop-blur-md p-4 rounded-[1.5rem] border border-white/50 shadow-lg shadow-indigo-100/30 relative overflow-hidden active:scale-[0.98] transition-transform">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-indigo-50/80 text-indigo-600 truncate max-w-[120px]">{alert.groupName}</span>
-                                            <button onClick={(e) => handleRejectRetake(e, alert.id)} className="w-6 h-6 rounded-full bg-slate-50/50 text-slate-400 flex items-center justify-center hover:bg-rose-100 hover:text-rose-500 transition-colors"><XCircle size={14}/></button>
+                            
+                            {/* BODY (Gorizontal Scroll) */}
+                            <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${isRetakeExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                                <div className="overflow-hidden">
+                                    <div className="p-4 bg-white/50">
+                                        <div className="flex overflow-x-auto gap-3 pb-2 -mx-2 px-2 scrollbar-hide snap-x">
+                                            {retakeAlerts.map((alert, idx) => (
+                                                <div key={idx} onClick={() => handleAlertClick(alert)} className="snap-center shrink-0 w-[260px] bg-white p-4 rounded-[1.5rem] border border-indigo-50 shadow-sm hover:shadow-md active:scale-[0.98] transition-all cursor-pointer relative overflow-hidden">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-indigo-50/80 text-indigo-600 truncate max-w-[120px]">{alert.groupName}</span>
+                                                        <button onClick={(e) => handleRejectRetake(e, alert.id)} className="w-6 h-6 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-rose-100 hover:text-rose-500 transition-colors"><XCircle size={14}/></button>
+                                                    </div>
+                                                    <h4 className="font-bold text-slate-800 text-sm truncate">{alert.studentName}</h4>
+                                                    <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{alert.topic}</p>
+                                                    <div className="mt-3 flex items-center gap-1 text-[10px] font-black text-indigo-500 uppercase tracking-wide">Tekshirish <ArrowRight size={12}/></div>
+                                                </div>
+                                            ))}
                                         </div>
-                                        <h4 className="font-bold text-slate-800 text-sm truncate">{alert.studentName}</h4>
-                                        <p className="text-[10px] text-slate-500 font-medium truncate mt-0.5">{alert.topic}</p>
-                                        <div className="mt-3 flex items-center gap-1 text-[10px] font-black text-indigo-500 uppercase tracking-wide">Tekshirish <ArrowRight size={12}/></div>
                                     </div>
-                                ))}
+                                </div>
                             </div>
                         </div>
                     )}
 
-                    {/* 🔥 GURUHLAR RO'YXATI */}
+                    {/* 2. Groups List */}
                     <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                         {groups.map((group, index) => {
                             const isMain = group.role === 'main';
-                            const style = isMain 
-                                ? (index % 2 === 0 ? 'from-blue-500 to-indigo-600' : 'from-emerald-400 to-teal-600')
-                                : 'from-amber-400 to-orange-500';
-
+                            const style = isMain ? (index % 2 === 0 ? 'from-blue-500 to-indigo-600' : 'from-emerald-400 to-teal-600') : 'from-amber-400 to-orange-500';
                             return (
-                                <div 
-                                    key={group.id} 
-                                    onClick={() => { triggerHaptic(); navigate(`/group/${group.id}`); }} 
-                                    className="group relative bg-white/40 backdrop-blur-xl rounded-[2rem] p-5 border border-white/60 shadow-xl shadow-indigo-500/10 cursor-pointer active:scale-[0.97] transition-all flex flex-col justify-between min-h-[160px] hover:bg-white/50"
-                                >
+                                <div key={group.id} onClick={() => { triggerHaptic(); navigate(`/group/${group.id}`); }} className="group relative bg-white/40 backdrop-blur-xl rounded-[2rem] p-5 border border-white/60 shadow-xl shadow-indigo-500/10 cursor-pointer active:scale-[0.97] transition-all flex flex-col justify-between min-h-[160px] hover:bg-white/50">
                                     <div>
-                                        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${style} flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform duration-300 mb-3`}>
-                                            {isMain ? <Users size={20} strokeWidth={2.5} /> : <UserCheck size={20} strokeWidth={2.5} />}
-                                        </div>
+                                        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${style} flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform duration-300 mb-3`}>{isMain ? <Users size={20} strokeWidth={2.5} /> : <UserCheck size={20} strokeWidth={2.5} />}</div>
                                         <h3 className="text-lg font-black text-slate-800 leading-tight line-clamp-2">{group.name}</h3>
-                                        <p className={`mt-1 text-[9px] font-black uppercase tracking-wider ${isMain ? 'text-indigo-900/60' : 'text-amber-700/70'}`}>
-                                            {isMain ? 'Main Teacher' : 'Assistant'}
-                                        </p>
+                                        <p className={`mt-1 text-[9px] font-black uppercase tracking-wider ${isMain ? 'text-indigo-900/60' : 'text-amber-700/70'}`}>{isMain ? 'Main Teacher' : 'Assistant'}</p>
                                     </div>
-                                    <div className="mt-3 flex justify-end">
-                                        <div className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center text-indigo-600 shadow-sm border border-white/50 group-hover:scale-110 transition-transform">
-                                            <ChevronRight size={20} />
-                                        </div>
-                                    </div>
+                                    <div className="mt-3 flex justify-end"><div className="w-10 h-10 rounded-full bg-white/50 flex items-center justify-center text-indigo-600 shadow-sm border border-white/50 group-hover:scale-110 transition-transform"><ChevronRight size={20} /></div></div>
                                 </div>
                             );
                         })}
@@ -413,22 +350,13 @@ const TeacherDashboard = () => {
                 <div className="animate-in fade-in slide-in-from-right-4 duration-300">
                     <div className="bg-white/60 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-xl overflow-hidden">
                         {debtors.length === 0 ? (
-                            <div className="p-12 text-center flex flex-col items-center">
-                                <div className="w-16 h-16 bg-emerald-100/50 rounded-full flex items-center justify-center mb-4"><Sparkles className="text-emerald-500" size={32}/></div>
-                                <h3 className="text-sm font-black text-slate-800">Hammasi joyida!</h3>
-                            </div>
+                            <div className="p-12 text-center flex flex-col items-center"><div className="w-16 h-16 bg-emerald-100/50 rounded-full flex items-center justify-center mb-4"><Sparkles className="text-emerald-500" size={32}/></div><h3 className="text-sm font-black text-slate-800">Hammasi joyida!</h3></div>
                         ) : (
                             <div className="divide-y divide-slate-100/50">
                                 {debtors.map((student, idx) => (
                                     <div key={idx} onClick={() => { triggerHaptic(); navigate(`/group/${student.groupId}`, { state: { openStudentId: student.id }})}} className="p-4 hover:bg-white/40 transition-colors cursor-pointer flex items-center justify-between gap-3 active:bg-white/60">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className="relative"><div className="w-10 h-10 rounded-full bg-white/80 overflow-hidden"><img src={getAvatarUrl(student.avatarSeed || student.name)} className="w-full h-full object-cover" alt="s"/></div></div>
-                                            <div className="min-w-0"><h4 className="font-bold text-slate-800 text-sm truncate">{student.name}</h4><span className="text-[9px] font-bold text-slate-500 bg-white/50 px-1.5 py-0.5 rounded truncate max-w-[120px]">{student.groupName}</span></div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-black text-red-500 bg-red-100/50 px-2 py-1 rounded-lg border border-red-100">{student.averageScore}%</span>
-                                            <div className="w-8 h-8 rounded-full bg-white/50 flex items-center justify-center text-slate-400 shrink-0"><ChevronRight size={16}/></div>
-                                        </div>
+                                        <div className="flex items-center gap-3 min-w-0"><div className="relative"><div className="w-10 h-10 rounded-full bg-white/80 overflow-hidden"><img src={getAvatarUrl(student.avatarSeed || student.name)} className="w-full h-full object-cover" alt="s"/></div></div><div className="min-w-0"><h4 className="font-bold text-slate-800 text-sm truncate">{student.name}</h4><span className="text-[9px] font-bold text-slate-500 bg-white/50 px-1.5 py-0.5 rounded truncate max-w-[120px]">{student.groupName}</span></div></div>
+                                        <div className="flex items-center gap-2"><span className="text-xs font-black text-red-500 bg-red-100/50 px-2 py-1 rounded-lg border border-red-100">{student.averageScore}%</span><div className="w-8 h-8 rounded-full bg-white/50 flex items-center justify-center text-slate-400 shrink-0"><ChevronRight size={16}/></div></div>
                                     </div>
                                 ))}
                             </div>
@@ -438,57 +366,22 @@ const TeacherDashboard = () => {
             )}
           </div>
 
-          {/* --- TEACHER BOTTOM NAVIGATION --- */}
+          {/* BOTTOM NAVIGATION */}
           {location.pathname !== '/chat' && (
             <div className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white/70 backdrop-blur-xl border-t border-white/40 flex justify-around py-3 pb-[calc(1rem+env(safe-area-inset-bottom))] z-[999] shadow-[0_-5px_20px_-5px_rgba(0,0,0,0.05)]">
-              
-              <button onClick={() => {triggerHaptic(); setActiveTab('groups');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'groups' ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500'}`}>
-                  <LayoutGrid size={24} strokeWidth={2.5} />
-                  <span className="text-[10px] font-black">Guruhlar</span>
-              </button>
-              
-              <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 text-slate-500 hover:text-indigo-600 relative">
-                  <MessageCircle size={24} strokeWidth={2.5} />
-                  <span className="text-[10px] font-black">Xabarlar</span>
-                  {unreadMessages > 0 && (
-                      <span className="absolute top-1 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
-                  )}
-              </button>
-
-              <button onClick={() => {triggerHaptic(); setActiveTab('debtors');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'debtors' ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500'}`}>
-                  <AlertTriangle size={24} strokeWidth={2.5} />
-                  <span className="text-[10px] font-black">Qarzdorlar</span>
-              </button>
+              <button onClick={() => {triggerHaptic(); setActiveTab('groups');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'groups' ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500'}`}><LayoutGrid size={24} strokeWidth={2.5} /><span className="text-[10px] font-black">Guruhlar</span></button>
+              <button onClick={() => {triggerHaptic(); navigate('/chat');}} className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 text-slate-500 hover:text-indigo-600 relative"><MessageCircle size={24} strokeWidth={2.5} /><span className="text-[10px] font-black">Xabarlar</span>{unreadMessages > 0 && (<span className="absolute top-1 right-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>)}</button>
+              <button onClick={() => {triggerHaptic(); setActiveTab('debtors');}} className={`flex flex-col items-center gap-1 p-2 rounded-2xl transition-all active:scale-95 ${activeTab === 'debtors' ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-500'}`}><AlertTriangle size={24} strokeWidth={2.5} /><span className="text-[10px] font-black">Qarzdorlar</span></button>
             </div>
           )}
       </div>
 
-      {/* 🔥 CHIQISHNI TASDIQLASH MODALI */}
+      {/* CHIQISH MODALI */}
       {isExitModalOpen && (
         <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-[2rem] p-6 w-full max-w-xs shadow-2xl border border-white/20 animate-in zoom-in-95 duration-200">
-            <div className="text-center mb-6">
-              <div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <LogOut size={24} className="text-indigo-600 ml-1" />
-              </div>
-              <h3 className="text-lg font-black text-slate-800 mb-1">Chiqish?</h3>
-              <p className="text-sm font-medium text-slate-500">Ilovadan chiqib ketmoqchimisiz?</p>
-            </div>
-            
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setIsExitModalOpen(false)} 
-                className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors active:scale-95"
-              >
-                Yo'q
-              </button>
-              <button 
-                onClick={() => App.exitApp()} 
-                className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
-              >
-                Ha, Chiqish
-              </button>
-            </div>
+            <div className="text-center mb-6"><div className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center mx-auto mb-3"><LogOut size={24} className="text-indigo-600 ml-1" /></div><h3 className="text-lg font-black text-slate-800 mb-1">Chiqish?</h3><p className="text-sm font-medium text-slate-500">Ilovadan chiqib ketmoqchimisiz?</p></div>
+            <div className="flex gap-3"><button onClick={() => setIsExitModalOpen(false)} className="flex-1 py-3.5 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors active:scale-95">Yo'q</button><button onClick={() => App.exitApp()} className="flex-1 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">Ha, Chiqish</button></div>
           </div>
         </div>
       )}

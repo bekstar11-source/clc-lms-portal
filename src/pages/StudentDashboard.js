@@ -16,8 +16,7 @@ import {
 import { App } from '@capacitor/app';
 
 // --- CONFIG ---
-// 🔥 CACHE KEY YANGILANDI (Eski noto'g'ri hisob-kitobni o'chirish uchun)
-const CACHE_KEY = 'student_dashboard_cache_v3'; 
+const CACHE_KEY = 'student_dashboard_cache_v4'; 
 const CACHE_DURATION = 10 * 60 * 1000; 
 const GRACE_PERIOD_DAYS = 7; 
 
@@ -473,11 +472,11 @@ const StudentDashboard = () => {
       {/* BACKGROUND */}
       <div className="absolute inset-0 z-0 transition-all duration-500">
          <div className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700" style={{ backgroundImage: `url('${bgImage}')` }}></div>
-         <div className="absolute inset-0 bg-black/10 backdrop-blur-1xl"></div>
+         <div className="absolute inset-0 bg-white/20 backdrop-blur-1xl"></div>
       </div>
 
       {/* HEADER */}
-      <nav className="relative z-10 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
+      <nav className="relative z-50 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
             <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 shadow-sm">
                 <img src={getAvatarUrl(student?.avatarSeed || student?.name)} alt="avatar" className="w-full h-full object-cover"/>
@@ -681,7 +680,7 @@ const StudentDashboard = () => {
                 const monthLessons = groupedLessons[month];
                 const isExpanded = expandedMonths[month] || index === 0;
                 return (
-                    <div key={month} className="bg-white/50 backdrop-blur-md rounded-[2rem] border border-white shadow-sm overflow-hidden">
+                    <div key={month} className="bg-white/80 backdrop-blur-md rounded-[2rem] border border-white shadow-sm overflow-hidden">
                     <div onClick={() => { triggerHaptic('tap'); setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] })); }} className={`p-5 flex justify-between items-center cursor-pointer transition-colors active:bg-slate-50`}>
                         <div className="flex items-center gap-3"><div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600"><Calendar size={20} /></div><div><h3 className="font-black text-slate-800 text-sm uppercase tracking-wide">{month}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{monthLessons.length} ta dars</p></div></div>
                         {isExpanded ? <ChevronUp className="text-slate-400" size={20}/> : <ChevronDown className="text-slate-400" size={20}/>}
@@ -778,7 +777,7 @@ const StudentDashboard = () => {
 
             {/* 3. GRADES TAB */}
             {activeTab === 'grades' && (
-            <div className="space-y-4 animate-in fade-in pb-4">
+            <div className="space-y-6 animate-in fade-in pb-4">
                 {/* HEADER */}
                 <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-white/50 shadow-sm inline-block">
                     <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter flex items-center gap-2">
@@ -786,56 +785,85 @@ const StudentDashboard = () => {
                     </h2>
                 </div>
 
-                <div className="space-y-3">
-                {[...grades].map((g, i) => {
-                    const isRetakeNeeded = g.score < 60; 
-                    
-                    let daysLeft = null;
-                    if (g.retakeDeadline) {
-                        const deadline = new Date(g.retakeDeadline);
-                        daysLeft = Math.ceil((deadline - new Date()) / (1000 * 60 * 60 * 24));
-                    }
-                    
-                    return (
-                    <div key={i} className={`p-3 rounded-2xl border bg-white/90 backdrop-blur-md shadow-sm flex flex-col gap-3 ${isRetakeNeeded ? 'border-amber-400 ring-2 ring-amber-100' : 'border-slate-100'}`}>
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="flex-1 min-w-0 pr-2">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase bg-slate-100 px-1.5 py-0.5 rounded-md">{g.dateStr}</span>
-                                    {g.type && <span className="text-[15px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md uppercase">{g.type}</span>}
-                                </div>
-                                
-                                <h3 className="text-xs font-black text-slate-700 leading-tight mb-1 truncate">
-                                    {g.comment || 'Mavzu'}
-                                </h3>
-                                
-                                <div className="flex items-center gap-1.5 mt-1">
-                                    <Bookmark size={15} className="text-indigo-400 shrink-0"/>
-                                    <p className="text-[15px] font-bold text-slate-500 line-clamp-1 leading-snug">
-                                        {g.taskType || "Umumiy vazifa"}
-                                    </p>
-                                </div>
+                {Object.keys(groupedLessons).map((month, index) => {
+                const monthLessons = groupedLessons[month];
+                const isExpanded = expandedMonths[month] || index === 0;
+                
+                // Faqat baholangan darslarni filtrlash (Optional: Agar bo'sh oylarni ko'rsatmaslik kerak bo'lsa)
+                // const hasGradesInMonth = monthLessons.some(l => grades.some(g => g.lessonId === l.id));
+                // if (!hasGradesInMonth) return null;
 
-                                {g.feedback && <p className="text-[10px] text-slate-400 mt-1 italic flex items-center gap-1 line-clamp-1"><MessageCircle size={10}/> "{g.feedback}"</p>}
-                            </div>
-                            
-                            <div className={`flex flex-col items-center justify-center w-16 h-14 rounded-xl shrink-0 ${g.score >= 80 ? 'bg-emerald-100 text-emerald-600' : g.score <= 60 ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                                <span className="text-2xl font-black tracking-tighter">{g.score}</span>
-                                <span className="text-[8px] font-bold uppercase opacity-60">%</span>
-                            </div>
-                        </div>
-                        
-                        {isRetakeNeeded && g.retakeDeadline && g.status !== 'retake_submitted' && (
-                            <div className="mt-1 pt-2 border-t border-amber-100 flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1 text-amber-600"><Timer size={12} /><span className="text-[9px] font-black uppercase flex items-center gap-1">Qoldi: <CountdownTimer deadline={g.retakeDeadline} /></span></div>
-                                <button onClick={() => submitRetake(g.id)} disabled={daysLeft !== null && daysLeft < 0} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${(daysLeft !== null && daysLeft < 0) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-amber-500 text-white shadow-lg shadow-amber-200 active:scale-95'}`}>Topshirish</button>
-                            </div>
-                        )}
-                        {g.status === 'retake_submitted' && <div className="mt-1 pt-2 border-t border-indigo-50 flex items-center gap-2 text-indigo-500"><CheckCircle2 size={12}/> <span className="text-[9px] font-black uppercase">Tekshirilmoqda</span></div>}
+                return (
+                    <div key={month} className="bg-white/80 backdrop-blur-md rounded-[2rem] border border-white shadow-sm overflow-hidden">
+                    <div onClick={() => { triggerHaptic('tap'); setExpandedMonths(prev => ({ ...prev, [month]: !prev[month] })); }} className={`p-5 flex justify-between items-center cursor-pointer transition-colors active:bg-slate-50`}>
+                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600"><Calendar size={20} /></div><div><h3 className="font-black text-slate-800 text-sm uppercase tracking-wide">{month}</h3><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Baholar</p></div></div>
+                        {isExpanded ? <ChevronUp className="text-slate-400" size={20}/> : <ChevronDown className="text-slate-400" size={20}/>}
                     </div>
-                    );
+                    {isExpanded && (
+                        <div className="p-4 space-y-3 border-t border-slate-100 bg-slate-50/50">
+                        {monthLessons.map((lesson) => {
+                            // Shu darsga tegishli barcha baholarni topamiz
+                            const lessonGrades = grades.filter(g => g.lessonId === lesson.id);
+                            
+                            if (lessonGrades.length === 0) return null; // Bahosi yo'q darslarni ko'rsatmaymiz (Grades tabida)
+
+                            return (
+                                <div key={lesson.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                                    <div className="mb-3 border-b border-slate-50 pb-2">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{lesson.rawDate}</span>
+                                            <span className="text-[8px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded uppercase">Baholangan</span>
+                                        </div>
+                                        <h3 className="text-xs font-black text-slate-700 leading-tight truncate">{lesson.topic}</h3>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        {lessonGrades.map((g, i) => {
+                                            const isRetakeNeeded = g.score < 60;
+                                            let daysLeft = null;
+                                            if (g.retakeDeadline) {
+                                                const deadline = new Date(g.retakeDeadline);
+                                                daysLeft = Math.ceil((deadline - new Date()) / (1000 * 60 * 60 * 24));
+                                            }
+
+                                            return (
+                                                <div key={i} className={`p-3 rounded-xl border bg-slate-50/50 flex flex-col gap-2 ${isRetakeNeeded ? 'border-amber-200 bg-amber-50/30' : 'border-slate-100'}`}>
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <Bookmark size={14} className="text-indigo-400 shrink-0"/>
+                                                            <div className="min-w-0">
+                                                                <p className="text-[10px] font-bold text-slate-600 truncate">{g.taskType || "Umumiy vazifa"}</p>
+                                                                {g.feedback && <p className="text-[9px] text-slate-400 italic truncate max-w-[150px]">"{g.feedback}"</p>}
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className={`flex items-center justify-center px-3 py-1 rounded-lg ${g.score >= 80 ? 'bg-emerald-100 text-emerald-600' : g.score <= 60 ? 'bg-red-100 text-red-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                                                            <span className="text-sm font-black">{g.score}%</span>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {isRetakeNeeded && g.retakeDeadline && g.status !== 'retake_submitted' && (
+                                                        <div className="pt-2 border-t border-amber-100 flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-1 text-amber-600"><Timer size={10} /><span className="text-[9px] font-black uppercase flex items-center gap-1">Qoldi: <CountdownTimer deadline={g.retakeDeadline} /></span></div>
+                                                            <button onClick={() => submitRetake(g.id)} disabled={daysLeft !== null && daysLeft <= 0} className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all ${(daysLeft !== null && daysLeft <= 0) ? 'bg-slate-200 text-slate-400' : 'bg-amber-500 text-white shadow-sm active:scale-95'}`}>Topshirish</button>
+                                                        </div>
+                                                    )}
+                                                    {g.status === 'retake_submitted' && <div className="pt-2 border-t border-indigo-50 flex items-center gap-2 text-indigo-500"><CheckCircle2 size={10}/> <span className="text-[9px] font-black uppercase">Tekshirilmoqda</span></div>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {monthLessons.every(l => !grades.some(g => g.lessonId === l.id)) && (
+                            <div className="text-center text-[10px] text-slate-400 italic py-2">Bu oyda hali baholar yo'q.</div>
+                        )}
+                        </div>
+                    )}
+                    </div>
+                );
                 })}
-                </div>
             </div>
             )}
         </div>

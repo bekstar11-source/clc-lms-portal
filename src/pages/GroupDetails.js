@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, X, Loader2, Edit2, Trash2, 
   UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar,
-  Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen, RefreshCw, Clock
+  Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen, RefreshCw, Clock, AlertCircle
 } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { 
@@ -11,7 +11,11 @@ import {
   doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc, writeBatch
 } from 'firebase/firestore';
 
-// --- YORDAMCHI: VIBRATSIYA ---
+// --- CONFIG ---
+const GRACE_PERIOD_DAYS = 7; // Topshirilmagan vazifalar uchun muhlat (kun)
+const RETAKE_PERIOD_DAYS = 7; // Qayta topshirish uchun muhlat (kun)
+
+// --- YORDAMCHI FUNKSIYALAR ---
 const triggerHaptic = (type = 'tap') => {
   if (navigator.vibrate) {
     if(type === 'tap') navigator.vibrate(10);
@@ -20,15 +24,44 @@ const triggerHaptic = (type = 'tap') => {
   }
 };
 
-// --- YORDAMCHI: AVATAR ---
 const getAvatarUrl = (seed) => {
     const safeSeed = seed || "default";
     const cleanSeed = safeSeed.replace('bot_', '');
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=e0e7ff,d1fae5,ffedd5`;
 };
 
-// --- YORDAMCHI: ID GENERATOR ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
+
+// 🔥 COUNTDOWN KOMPONENTI (Yangilandi)
+const MiniCountdown = ({ deadline, label, type = 'danger' }) => {
+  const [timeLeft, setTimeLeft] = useState("");
+
+  useEffect(() => {
+    if (!deadline) return;
+    const calculate = () => {
+      const diff = new Date(deadline) - new Date();
+      if (diff <= 0) { setTimeLeft("Tugadi"); return; }
+      
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      
+      setTimeLeft(days > 0 ? `${days}k` : `${hours}s`);
+    };
+    calculate();
+    const timer = setInterval(calculate, 60000);
+    return () => clearInterval(timer);
+  }, [deadline]);
+
+  const colorClass = type === 'danger' 
+    ? 'bg-red-50 text-red-500 border-red-200' 
+    : 'bg-amber-50 text-amber-600 border-amber-200';
+
+  return (
+    <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${colorClass}`}>
+       {label}: {timeLeft}
+    </span>
+  );
+};
 
 const GroupDetails = () => {
   const { groupId } = useParams();
@@ -297,7 +330,6 @@ const GroupDetails = () => {
                   isDelayed: isLessonDelayed 
               });
           }
-          
           setIsAddLessonOpen(false);
           setEditingLesson(null);
           await fetchData(true); 
@@ -347,16 +379,12 @@ const GroupDetails = () => {
 
   const handleScoreChange = (lessonId, taskText, value) => {
       const key = `${lessonId}_${taskText}`;
-      
       const newScores = { ...gradeScores, [key]: value };
       setGradeScores(newScores);
 
       let isChanged = false;
       const initialVal = initialScores[key] || '';
-      if (String(value) !== String(initialVal)) {
-          isChanged = true;
-      }
-      
+      if (String(value) !== String(initialVal)) isChanged = true;
       if (!isChanged) {
           for (let k in newScores) {
               const init = initialScores[k] || '';
@@ -366,9 +394,7 @@ const GroupDetails = () => {
               }
           }
       }
-      
       setHasChanges(isChanged);
-
       if (savedStatus[key]) {
           const newStatus = { ...savedStatus };
           delete newStatus[key];
@@ -376,40 +402,29 @@ const GroupDetails = () => {
       }
   };
 
-  // 🔥 YANGI: Bahoni o'chirish funksiyasi
   const handleDeleteGrade = async (lessonId, taskName) => {
       triggerHaptic('error');
-      
       const key = `${lessonId}_${taskName}`;
       const docId = existingGradeDocs[key];
 
-      // Agar bazada bo'lsa (haqiqiy o'chirish)
       if (docId) {
           if(window.confirm("Rostdan ham bu bahoni o'chirib yubormoqchimisiz?")) {
               try {
                   await deleteDoc(doc(db, "grades", docId));
-                  
-                  // Local state update
                   const newScores = { ...gradeScores };
                   delete newScores[key];
                   setGradeScores(newScores);
-                  
                   const newDocs = { ...existingGradeDocs };
                   delete newDocs[key];
                   setExistingGradeDocs(newDocs);
-
                   const newInitials = { ...initialScores };
                   delete newInitials[key];
                   setInitialScores(newInitials);
-
                   triggerHaptic('success');
-                  fetchData(true); // Orqa fonda yangilash
-              } catch (e) {
-                  alert("Xatolik: " + e.message);
-              }
+                  fetchData(true);
+              } catch (e) { alert("Xatolik: " + e.message); }
           }
       } else {
-          // Agar hali saqlanmagan bo'lsa (shunchaki inputni tozalash)
           handleScoreChange(lessonId, taskName, '');
       }
   };
@@ -444,7 +459,7 @@ const GroupDetails = () => {
          
          if (scoreNum < 60) {
             const deadline = new Date();
-            deadline.setDate(deadline.getDate() + 7);
+            deadline.setDate(deadline.getDate() + RETAKE_PERIOD_DAYS);
             gradeData.status = 'retake_needed';
             gradeData.retakeDeadline = deadline;
             if (!eId) gradeData.previousScore = null;
@@ -463,7 +478,6 @@ const GroupDetails = () => {
                  groupId, lessonId, taskType, comment: topic, ...gradeData
              });
          }
-         
          newSavedStatus[key] = true;
          changeCount++;
       }
@@ -472,15 +486,10 @@ const GroupDetails = () => {
           await batch.commit();
           setSavedStatus(newSavedStatus);
           triggerHaptic('success');
-          
-          setTimeout(() => {
-              setIsGradeModalOpen(false);
-              fetchData(true);
-          }, 500); 
+          setTimeout(() => { setIsGradeModalOpen(false); fetchData(true); }, 500); 
       } else {
           setIsGradeModalOpen(false); 
       }
-
     } catch (er) { alert("Xatolik: " + er.message); }
   };
 
@@ -491,7 +500,7 @@ const GroupDetails = () => {
   return (
     <div className="min-h-screen bg-slate-50 font-sans touch-manipulation pb-20 md:ml-[300px] transition-all duration-300">
       
-      {/* --- HEADER --- */}
+      {/* HEADER */}
       <header className="fixed top-0 right-0 left-0 md:left-[300px] z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-3 shadow-sm transition-all duration-300">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
@@ -506,31 +515,22 @@ const GroupDetails = () => {
             </div>
             
             <div className="flex items-center gap-2">
-                <button 
-                    onClick={handleForceRefresh} 
-                    className={`p-2 rounded-xl border border-slate-100 transition-all ${refreshing ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
-                >
+                <button onClick={handleForceRefresh} className={`p-2 rounded-xl border border-slate-100 transition-all ${refreshing ? 'bg-indigo-50 text-indigo-600' : 'bg-white text-slate-400 hover:bg-slate-50'}`}>
                     <RefreshCw size={20} className={refreshing ? "animate-spin" : ""} />
                 </button>
-
                 {currentUserRole === 'admin' && (
                     <button onClick={handleDeleteGroup} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20}/></button>
                 )}
             </div>
         </div>
 
-        {/* --- TABS --- */}
         <div className="flex p-1 bg-slate-100 rounded-xl mt-4">
-            <button onClick={() => { triggerHaptic(); setActiveTab('students'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>
-                <Users size={14}/> O'quvchilar
-            </button>
-            <button onClick={() => { triggerHaptic(); setActiveTab('journal'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'journal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>
-                <BookOpen size={14}/> Jurnal
-            </button>
+            <button onClick={() => { triggerHaptic(); setActiveTab('students'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Users size={14}/> O'quvchilar</button>
+            <button onClick={() => { triggerHaptic(); setActiveTab('journal'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'journal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><BookOpen size={14}/> Jurnal</button>
         </div>
       </header>
 
-      {/* --- CONTENT --- */}
+      {/* CONTENT */}
       <div className="pt-[140px] px-4 sm:px-6 max-w-4xl mx-auto space-y-6">
         
         {/* STUDENTS TAB */}
@@ -561,18 +561,12 @@ const GroupDetails = () => {
                      return (
                      <div key={s.id} onClick={() => openGradeModal(s)} className={`group bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between gap-3 active:scale-[0.98] transition-transform cursor-pointer relative overflow-hidden`}>
                         {studentViewMode === 'leaderboard' && index < 3 && <div className={`absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-white/0 to-white/0 ${index === 0 ? 'via-yellow-50/50' : ''} pointer-events-none`}></div>}
-                        
                         <div className="flex items-center gap-4 overflow-hidden min-w-0 flex-1">
-                           {studentViewMode === 'leaderboard' && (
-                               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shrink-0 shadow-sm ${rankStyle}`}>{index + 1}</div>
-                           )}
+                           {studentViewMode === 'leaderboard' && (<div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shrink-0 shadow-sm ${rankStyle}`}>{index + 1}</div>)}
                            <div className="relative">
-                               <div className="w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-100">
-                                  <img src={getAvatarUrl(s.avatarSeed || s.name)} alt="" className="w-full h-full object-cover"/>
-                               </div>
+                               <div className="w-12 h-12 rounded-2xl bg-slate-100 overflow-hidden border border-slate-100"><img src={getAvatarUrl(s.avatarSeed || s.name)} alt="" className="w-full h-full object-cover"/></div>
                                {studentViewMode === 'leaderboard' && index === 0 && <Crown size={14} className="absolute -top-2 -right-2 text-yellow-500 fill-yellow-500 animate-bounce"/>}
                            </div>
-                           
                            <div className="flex flex-col min-w-0">
                                <span className="text-sm font-bold text-slate-800 truncate">{s.name}</span>
                                <div className="flex items-center gap-3 mt-1">
@@ -581,7 +575,6 @@ const GroupDetails = () => {
                                </div>
                            </div>
                         </div>
-
                         {currentUserRole === 'admin' && (
                            <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
                              <button onClick={() => { setSelectedStudent(s); setIsMoveModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 active:scale-90 transition-transform"><Share2 size={18}/></button>
@@ -601,7 +594,6 @@ const GroupDetails = () => {
                     <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Darslar Tarixi</h2>
                     <button onClick={handleOpenNewLesson} className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 active:scale-95 transition-all"><Plus size={14}/> Yangi Dars</button>
                 </div>
-
                 <div className="space-y-6 relative">
                     <div className="absolute left-4 top-4 bottom-0 w-0.5 bg-slate-200"></div>
                     {Object.keys(groupedLessons).map((month) => (
@@ -642,14 +634,12 @@ const GroupDetails = () => {
         )}
       </div>
 
-      {/* GRADE MODAL - 🔥 O'ZGARTIRILDI: h-[95dvh] va Drag Handle */}
+      {/* GRADE MODAL */}
       {isGradeModalOpen && selectedStudent && (
         <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center sm:p-6">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsGradeModalOpen(false)}></div>
-          {/* 🔥 h-[95dvh] mobilda deyarli to'liq ekran */}
           <div className="bg-white w-full max-w-lg h-[95dvh] sm:h-[85vh] rounded-t-[2rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
             
-            {/* 🔥 Mobile Drag Handle */}
             <div className="w-full flex justify-center pt-3 pb-1 bg-slate-900 sm:hidden">
                 <div className="w-12 h-1.5 bg-white/20 rounded-full"></div>
             </div>
@@ -690,37 +680,91 @@ const GroupDetails = () => {
                                                   const isSaved = savedStatus[key];
                                                   const isHighlighted = location.state?.highlightKey === key;
                                                   
+                                                  // 🔥 YANGI COUNTDOWN MANTIQI (QIZIL va SARIQ)
+                                                  const lessonDate = new Date(lesson.date);
+                                                  const todayStr = new Date().toISOString().split('T')[0];
+                                                  const isLate = lesson.date < todayStr;
+                                                  
+                                                  // Missing muddati (3 kun)
+                                                  const missingDeadline = new Date(lessonDate);
+                                                  missingDeadline.setDate(missingDeadline.getDate() + GRACE_PERIOD_DAYS);
+
+                                                  let showCountdown = false;
+                                                  let countdownLabel = "";
+                                                  let targetDeadline = null;
+                                                  let countdownType = "danger"; // danger = red, warning = yellow
+
+                                                  // 1. MISSING (Baho yo'q va vaqt o'tgan)
+                                                  if (score === '' && !existingGradeDocs[key] && isLate && !lesson.isDelayed) {
+                                                      showCountdown = true;
+                                                      countdownLabel = "Missing";
+                                                      targetDeadline = missingDeadline.toISOString();
+                                                  }
+
+                                                  // 2. RETAKE (Baho < 60)
+                                                  const gradeObj = existingGradeObjects[key];
+                                                  
+                                                  // Agar baho kiritilgan bo'lsa va 60 dan kichik bo'lsa
+                                                  if (score !== '' && Number(score) < 60) {
+                                                      showCountdown = true;
+                                                      countdownLabel = "Retake";
+                                                      countdownType = "warning"; // 🔥 SARIQ RANG
+
+                                                      // Agar bazada deadline saqlangan bo'lsa o'shani olamiz
+                                                      if (gradeObj && gradeObj.retakeDeadline) {
+                                                          targetDeadline = gradeObj.retakeDeadline.toDate ? gradeObj.retakeDeadline.toDate() : gradeObj.retakeDeadline;
+                                                      } else {
+                                                          // Agar hali deadline yo'q bo'lsa (yangi qo'yilyapti), bugundan 7 kun hisoblaymiz
+                                                          const rtDate = new Date();
+                                                          rtDate.setDate(rtDate.getDate() + RETAKE_PERIOD_DAYS);
+                                                          targetDeadline = rtDate.toISOString();
+                                                      }
+
+                                                      // Agar topshirib bo'lgan bo'lsa, countdown ko'rinmasin
+                                                      if (gradeObj && gradeObj.status === 'retake_submitted') {
+                                                          showCountdown = false;
+                                                      }
+                                                  }
+
                                                   let borderColor = "border-slate-200 focus-within:border-indigo-500";
                                                   if (score && score < 60) borderColor = "border-rose-300 bg-rose-50/30";
                                                   else if (score >= 60) borderColor = "border-emerald-300 bg-emerald-50/30";
                                                   if (isHighlighted) borderColor = "border-yellow-400 ring-2 ring-yellow-200 bg-yellow-50";
 
                                                   return (
-                                                      <div key={idx} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${borderColor}`}>
-                                                          <span className="text-[11px] font-bold text-slate-600 truncate mr-2">{taskName}</span>
-                                                          <div className="flex items-center gap-2">
-                                                              <div className="relative">
-                                                                  <input 
-                                                                    ref={isHighlighted ? highlightRef : null}
-                                                                    type="number" inputMode="numeric" min="0" max="100" placeholder="-"
-                                                                    className="w-16 h-10 text-center text-lg font-black bg-white rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-                                                                    value={score}
-                                                                    onChange={(e) => handleScoreChange(lesson.id, taskName, e.target.value)}
-                                                                    onClick={(e) => e.target.select()}
-                                                                  />
-                                                                  {isSaved && <div className="absolute -right-6 top-3 text-emerald-500"><Check size={16} strokeWidth={3}/></div>}
+                                                      <div key={idx} className={`flex flex-col gap-1 p-3 rounded-xl border transition-all ${borderColor}`}>
+                                                          <div className="flex items-center justify-between">
+                                                              <span className="text-[11px] font-bold text-slate-600 truncate mr-2">{taskName}</span>
+                                                              <div className="flex items-center gap-2">
+                                                                  <div className="relative">
+                                                                      <input 
+                                                                        ref={isHighlighted ? highlightRef : null}
+                                                                        type="number" inputMode="numeric" min="0" max="100" placeholder="-"
+                                                                        className="w-16 h-10 text-center text-lg font-black bg-white rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                                                                        value={score}
+                                                                        onChange={(e) => handleScoreChange(lesson.id, taskName, e.target.value)}
+                                                                        onClick={(e) => e.target.select()}
+                                                                      />
+                                                                      {isSaved && <div className="absolute -right-6 top-3 text-emerald-500"><Check size={16} strokeWidth={3}/></div>}
+                                                                  </div>
+                                                                  {(score !== '' || existingGradeDocs[key]) && (
+                                                                      <button 
+                                                                        type="button" 
+                                                                        onClick={() => handleDeleteGrade(lesson.id, taskName)}
+                                                                        className="p-2.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 active:scale-90 transition-transform"
+                                                                      >
+                                                                        <Trash2 size={16} />
+                                                                      </button>
+                                                                  )}
                                                               </div>
-                                                              {/* 🔥 O'CHIRISH TUGMASI (Faqat baho bo'lsa chiqadi) */}
-                                                              {(score !== '' || existingGradeDocs[key]) && (
-                                                                  <button 
-                                                                    type="button" 
-                                                                    onClick={() => handleDeleteGrade(lesson.id, taskName)}
-                                                                    className="p-2.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 active:scale-90 transition-transform"
-                                                                  >
-                                                                    <Trash2 size={16} />
-                                                                  </button>
-                                                              )}
                                                           </div>
+                                                          
+                                                          {/* 🔥 COUNTDOWN DISPLAY (Red or Yellow) */}
+                                                          {showCountdown && (
+                                                              <div className="mt-1 flex justify-end">
+                                                                  <MiniCountdown deadline={targetDeadline} label={countdownLabel} type={countdownType} />
+                                                              </div>
+                                                          )}
                                                       </div>
                                                   )
                                               })}
@@ -790,7 +834,6 @@ const GroupDetails = () => {
                 <input type="date" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonDate} onChange={e => setLessonDate(e.target.value)} />
                 <input type="text" placeholder="Mavzu Nomi" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonTopic} onChange={e => setLessonTopic(e.target.value)} />
                 
-                {/* 🔥 DELAY TOGGLE */}
                 <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
                     <div 
                         onClick={() => setIsLessonDelayed(!isLessonDelayed)}

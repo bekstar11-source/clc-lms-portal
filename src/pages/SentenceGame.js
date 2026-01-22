@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Home, CheckCircle2, XCircle, RotateCcw, 
-  AlignLeft, ArrowRight, Loader2, Trophy, Zap, Eraser 
+  AlignLeft, ArrowRight, Loader2, Trophy, Zap, Eraser,
+  Heart, Lightbulb
 } from 'lucide-react';
 // 🔥 Importlar yangilandi
 import { doc, getDoc, updateDoc, increment, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
@@ -29,6 +30,8 @@ const SentenceGame = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showXpAnim, setShowXpAnim] = useState(false);
   const [xpChange, setXpChange] = useState(0);
+  const [lives, setLives] = useState(5);
+  const HINT_COST = 5;
 
   const timerRef = useRef(null);
 
@@ -114,6 +117,7 @@ const SentenceGame = () => {
       setShuffledSentences(shuffled);
       setCurrentSentenceIndex(0); 
       setStreak(0); 
+      setLives(5);
       setGameState('playing'); 
       
       loadSentence(shuffled[0]);
@@ -148,6 +152,52 @@ const SentenceGame = () => {
     setAvailableParts(prev => prev.map(item => ({...item, status: 'available'})));
   };
 
+  const useHint = () => {
+    if (isProcessing || feedback) return;
+    if (totalXp < HINT_COST) return alert("XP yetarli emas!");
+    
+    const currentSentence = shuffledSentences[currentSentenceIndex];
+    const correctParts = currentSentence.parts;
+    
+    // Hozirgacha qancha qismi to'g'ri ekanligini tekshiramiz
+    let matchCount = 0;
+    for (let i = 0; i < selectedParts.length; i++) {
+        if (selectedParts[i].text === correctParts[i]) {
+            matchCount++;
+        } else {
+            break;
+        }
+    }
+    
+    if (matchCount === correctParts.length) return; // Agar hammasi to'g'ri bo'lsa
+
+    const wordNeeded = correctParts[matchCount];
+    const partObj = availableParts.find(p => p.text === wordNeeded && p.status === 'available');
+    
+    if (partObj) {
+        triggerHaptic('tap');
+        
+        // Noto'g'ri terilgan qismlarni qaytarib yuboramiz va to'g'risini qo'shamiz
+        const newSelected = selectedParts.slice(0, matchCount);
+        const partsToReturn = selectedParts.slice(matchCount);
+        
+        const newAvailable = availableParts.map(p => {
+            if (partsToReturn.find(rp => rp.id === p.id)) return { ...p, status: 'available' };
+            if (p.id === partObj.id) return { ...p, status: 'used' };
+            return p;
+        });
+
+        setSelectedParts([...newSelected, partObj]);
+        setAvailableParts(newAvailable);
+        
+        setXpChange(-HINT_COST);
+        setSessionXp(prev => prev - HINT_COST);
+        setShowXpAnim(true);
+        updateStudentXP(-HINT_COST);
+        setTimeout(() => setShowXpAnim(false), 1000);
+    }
+  };
+
   const checkAnswer = async () => {
       if (isProcessing) return;
       setIsProcessing(true); 
@@ -175,6 +225,9 @@ const SentenceGame = () => {
           setFeedback('wrong'); 
           setStreak(0); 
 
+          const newLives = lives - 1;
+          setLives(newLives);
+
           const penalty = Math.floor(baseReward / 2);
           
           setXpChange(-penalty);
@@ -183,6 +236,10 @@ const SentenceGame = () => {
 
           // 🔥 XP AYIRISH
           updateStudentXP(-penalty);
+
+          if (newLives <= 0) {
+             setTimeout(() => setGameState('game_over'), 1000);
+          }
       }
       setIsProcessing(false); 
   };
@@ -244,6 +301,29 @@ const SentenceGame = () => {
       )
   }
 
+  // --- GAME OVER ---
+  if(gameState === 'game_over') {
+      const currentSentence = shuffledSentences[currentSentenceIndex];
+      return (
+          <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-900 p-6 text-center text-white animate-in zoom-in-95 duration-300">
+              <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center mb-6 animate-bounce">
+                 <XCircle className="w-12 h-12 text-rose-500" />
+              </div>
+              <h2 className="text-3xl font-black mb-2">GAME OVER</h2>
+              <p className="text-slate-400 mb-6">Urinishlar tugadi.</p>
+              
+              <div className="bg-slate-800 p-4 rounded-xl mb-6 w-full max-w-sm border border-slate-700">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">To'g'ri javob:</p>
+                  <p className="text-lg font-bold text-emerald-400">{currentSentence?.parts.join(' ')}</p>
+                  <p className="text-sm text-slate-400 mt-1">{currentSentence?.translation}</p>
+              </div>
+
+              <div className="text-emerald-400 font-black text-xl mb-6">+{sessionXp} XP Earned</div>
+              <button onClick={()=>setGameState('level_select')} className="w-full max-w-xs py-4 bg-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform"><Home size={20}/> Menu</button>
+          </div>
+      )
+  }
+
   // --- RESULT ---
   if(gameState === 'result') {
       return (
@@ -270,10 +350,17 @@ const SentenceGame = () => {
               <button onClick={()=>setGameState('level_select')} className="text-slate-400 p-2 -m-2 active:text-white"><Home size={22}/></button>
               
               {/* Progress Bar */}
-              <div className="flex flex-col items-center w-1/3">
+              <div className="flex flex-col items-center w-1/4">
                   <div className="w-full h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden">
                       <div className="h-full bg-emerald-500 transition-all duration-500 ease-out" style={{width: `${progressPercent}%`}}></div>
                   </div>
+              </div>
+
+              {/* Lives */}
+              <div className="flex gap-0.5">
+                  {[...Array(5)].map((_, i) => (
+                      <Heart key={i} size={16} className={`${i < lives ? 'text-rose-500 fill-rose-500' : 'text-slate-700 fill-slate-700'} transition-colors`} />
+                  ))}
               </div>
 
               {/* Session XP */}
@@ -352,6 +439,16 @@ const SentenceGame = () => {
                             className="h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-rose-400 hover:text-rose-300 transition-transform border-b-4 border-slate-900 disabled:opacity-50 active:border-b-0 active:translate-y-1"
                         >
                             <Eraser size={20}/>
+                        </button>
+
+                        {/* Hint Button */}
+                        <button 
+                            onClick={useHint} 
+                            disabled={isProcessing || totalXp < HINT_COST}
+                            className="relative h-14 w-14 flex items-center justify-center bg-slate-800 rounded-xl text-yellow-400 hover:text-yellow-300 transition-transform border-b-4 border-slate-900 disabled:opacity-50 active:border-b-0 active:translate-y-1 group"
+                        >
+                            <Lightbulb size={24} className={totalXp >= HINT_COST ? "fill-yellow-400/20" : ""}/>
+                            <span className="absolute -top-2 -right-2 bg-yellow-500 text-slate-900 text-[9px] font-black px-1.5 py-0.5 rounded-full border border-slate-900">-{HINT_COST}</span>
                         </button>
 
                         <button 

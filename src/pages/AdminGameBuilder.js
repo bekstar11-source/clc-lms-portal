@@ -6,6 +6,7 @@ import {
   Gamepad2, Zap, Trash2, CheckCircle2, FileJson, Copy, AlignLeft 
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ArchivedStudents from '../components/ArchivedStudents';
 
 const AdminGameBuilder = () => {
   const navigate = useNavigate();

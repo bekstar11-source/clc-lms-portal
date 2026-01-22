@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, ArrowRight, Home, 
-  BrainCircuit, Shuffle, Loader2, Eraser, Zap, Lightbulb 
+  BrainCircuit, Shuffle, Loader2, Eraser, Zap, Lightbulb,
+  Heart, XCircle
 } from 'lucide-react';
 // 🔥 'collection', 'query', 'where', 'getDocs' qo'shildi
 import { doc, getDoc, updateDoc, increment, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
@@ -31,8 +32,9 @@ const WordGame = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showXpAnim, setShowXpAnim] = useState(false);
   const [xpChange, setXpChange] = useState(0);
+  const [lives, setLives] = useState(5);
 
-  const HINT_COST = 20;
+  const HINT_COST = 10;
   const timersRef = useRef([]);
 
   const triggerHaptic = (type) => {
@@ -124,6 +126,7 @@ const WordGame = () => {
       const shuffled = shuffleArray(originalWords);
       setWordQueue(shuffled);
       setCurrentIndex(0);
+      setLives(5);
       setGameState('playing');
       loadWord(shuffled[0]);
   };
@@ -244,14 +247,21 @@ const WordGame = () => {
           // 🔥 YANGI FUNKSIYA ISHLATILDI
           updateStudentXP(-penalty);
 
-          const timer = setTimeout(() => {
-              setFeedback(null);
-              setUserGuess([]);
-              setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
-              setShowXpAnim(false);
-              setIsProcessing(false);
-          }, 1200);
-          timersRef.current.push(timer);
+          const newLives = lives - 1;
+          setLives(newLives);
+
+          if (newLives <= 0) {
+             setTimeout(() => setGameState('game_over'), 1000);
+          } else {
+              const timer = setTimeout(() => {
+                  setFeedback(null);
+                  setUserGuess([]);
+                  setScrambledLetters(prev => prev.map(l => ({...l, status: 'available'})));
+                  setShowXpAnim(false);
+                  setIsProcessing(false);
+              }, 1200);
+              timersRef.current.push(timer);
+          }
       }
   };
 
@@ -315,6 +325,28 @@ const WordGame = () => {
       )
   }
 
+  // --- GAME OVER ---
+  if(gameState === 'game_over') {
+      return (
+          <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-900 p-6 text-center text-white animate-in zoom-in-95 duration-300">
+              <div className="w-24 h-24 bg-rose-500/20 rounded-full flex items-center justify-center mb-6 animate-bounce">
+                 <XCircle className="w-12 h-12 text-rose-500" />
+              </div>
+              <h2 className="text-3xl font-black mb-2">GAME OVER</h2>
+              <p className="text-slate-400 mb-6">Urinishlar tugadi.</p>
+              
+              <div className="bg-slate-800 p-4 rounded-xl mb-6 w-full max-w-sm border border-slate-700">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">To'g'ri javob:</p>
+                  <p className="text-lg font-bold text-emerald-400">{currentWordObj?.word}</p>
+                  <p className="text-sm text-slate-400 mt-1">{currentWordObj?.translation}</p>
+              </div>
+
+              <div className="text-emerald-400 font-black text-xl mb-6">+{sessionXp} XP Earned</div>
+              <button onClick={()=>setGameState('menu')} className="w-full max-w-xs py-4 bg-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform"><Home size={20}/> Menu</button>
+          </div>
+      )
+  }
+
   // --- PLAYING UI ---
   const wordLength = currentWordObj?.word.length || 0;
   const isLongWord = wordLength > 7;
@@ -327,6 +359,13 @@ const WordGame = () => {
               <button onClick={()=>setGameState('menu')} className="p-2 -ml-2 bg-slate-800/50 rounded-xl text-slate-400 active:text-white transition-colors"><Home size={20}/></button>
               
               <div className="flex items-center gap-4">
+                 {/* Lives */}
+                 <div className="flex gap-0.5">
+                    {[...Array(5)].map((_, i) => (
+                        <Heart key={i} size={16} className={`${i < lives ? 'text-rose-500 fill-rose-500' : 'text-slate-700 fill-slate-700'} transition-colors`} />
+                    ))}
+                 </div>
+
                  {/* Total XP with Hint indicator */}
                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 border border-slate-700">
                      <Trophy size={14} className="text-yellow-400"/>
@@ -395,7 +434,7 @@ const WordGame = () => {
               <div className="w-full max-w-sm">
                   <div className="flex flex-wrap justify-center gap-2">
                       {scrambledLetters.map((l) => (
-                          <div key={l.id} className={`${l.status === 'used' ? 'opacity-0 pointer-events-none scale-75 w-0' : 'scale-100 w-auto'} transition-all duration-300`}>
+                          <div key={l.id} className={`${l.status === 'used' ? 'opacity-0 pointer-events-none' : ''} transition-all duration-300`}>
                               <button 
                                 onClick={() => handleLetterClick(l)}
                                 disabled={isProcessing}
