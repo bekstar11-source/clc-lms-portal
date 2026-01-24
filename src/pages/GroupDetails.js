@@ -498,10 +498,10 @@ const GroupDetails = () => {
   const displayedStudents = getDisplayedStudents();
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans touch-manipulation pb-20 md:ml-[300px] transition-all duration-300">
+    <div className="min-h-screen bg-slate-50 font-sans touch-manipulation pb-20 md:ml-72 transition-all duration-300">
       
       {/* HEADER */}
-      <header className="fixed top-0 right-0 left-0 md:left-[300px] z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-3 shadow-sm transition-all duration-300">
+      <header className="fixed top-0 right-0 left-0 md:left-72 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-3 shadow-sm transition-all duration-300">
         <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
                 <button onClick={() => navigate('/')} className="p-2 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors shrink-0 active:scale-95"><ArrowLeft size={20}/></button>
@@ -524,14 +524,14 @@ const GroupDetails = () => {
             </div>
         </div>
 
-        <div className="flex p-1 bg-slate-100 rounded-xl mt-4">
-            <button onClick={() => { triggerHaptic(); setActiveTab('students'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Users size={14}/> O'quvchilar</button>
-            <button onClick={() => { triggerHaptic(); setActiveTab('journal'); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'journal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><BookOpen size={14}/> Jurnal</button>
+        <div className="flex p-1 bg-slate-100 rounded-xl mt-4 md:w-fit">
+            <button onClick={() => { triggerHaptic(); setActiveTab('students'); }} className={`flex-1 md:flex-none md:px-8 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Users size={14}/> O'quvchilar</button>
+            <button onClick={() => { triggerHaptic(); setActiveTab('journal'); }} className={`flex-1 md:flex-none md:px-8 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'journal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><BookOpen size={14}/> Jurnal</button>
         </div>
       </header>
 
       {/* CONTENT */}
-      <div className="pt-[140px] px-4 sm:px-6 max-w-4xl mx-auto space-y-6">
+      <div className="pt-[140px] px-4 sm:px-6 max-w-7xl mx-auto space-y-6">
         
         {/* STUDENTS TAB */}
         {activeTab === 'students' && (

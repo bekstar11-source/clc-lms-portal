@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, LogOut, ShieldCheck, 
   Settings, ClipboardList, AlertCircle, Sparkles,
-  Gamepad2, Zap 
+  Gamepad2, Zap, Home, PieChart, MessageCircle
 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -100,6 +100,37 @@ const Sidebar = ({ role }) => {
                 <span className="font-bold text-xs uppercase tracking-wide">Qarzdorlar</span>
               </NavLink>
             )}
+
+            <NavLink to="/chat" className={({ isActive }) => isActive ? activeLink : normalLink}>
+              <MessageCircle size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">Chat</span>
+            </NavLink>
+          </div>
+        )}
+
+        {role === 'student' && (
+          <div className="space-y-2">
+            <p className="px-4 text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2 mt-2">O'quvchi</p>
+            
+            <button onClick={() => navigate('/', { state: { activeTab: 'dashboard' } })} className={normalLink}>
+              <Home size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">Asosiy</span>
+            </button>
+
+            <button onClick={() => navigate('/', { state: { activeTab: 'schedule' } })} className={normalLink}>
+              <ClipboardList size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">Vazifalar</span>
+            </button>
+
+            <button onClick={() => navigate('/', { state: { activeTab: 'grades' } })} className={normalLink}>
+              <PieChart size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">Baholar</span>
+            </button>
+
+            <NavLink to="/chat" className={({ isActive }) => isActive ? activeLink : normalLink}>
+              <MessageCircle size={20} />
+              <span className="font-bold text-xs uppercase tracking-wide">Chat</span>
+            </NavLink>
           </div>
         )}
 

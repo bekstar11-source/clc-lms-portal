@@ -39,6 +39,11 @@ const AdminPanel = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [processingId, setProcessingId] = useState(null);
   const [newGroupName, setNewGroupName] = useState('');
+
+  // --- GROUP EDIT STATES ---
+  const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [editGroupName, setEditGroupName] = useState('');
   
   // --- ANNOUNCEMENT STATES ---
   const [announcementText, setAnnouncementText] = useState('');
@@ -151,6 +156,22 @@ const AdminPanel = () => {
       } catch (e) { alert(e.message); }
   };
 
+  const openEditGroupModal = (group) => {
+      setEditingGroup(group);
+      setEditGroupName(group.name);
+      setIsEditGroupOpen(true);
+  };
+
+  const saveGroupEdit = async (e) => {
+      e.preventDefault();
+      if (!editingGroup || !editGroupName.trim()) return;
+      try {
+          await updateDoc(doc(db, "groups", editingGroup.id), { name: editGroupName });
+          setGroups(prev => prev.map(g => g.id === editingGroup.id ? { ...g, name: editGroupName } : g));
+          setIsEditGroupOpen(false);
+      } catch (e) { alert(e.message); }
+  };
+
   const createGroup = async (e) => {
     e.preventDefault(); if(!newGroupName.trim()) return;
     try { const docRef = await addDoc(collection(db, "groups"), { name: newGroupName, teacherId: null, assistantTeacherId: null, createdAt: serverTimestamp() }); setGroups([...groups, { id: docRef.id, name: newGroupName, teacherId: null, assistantTeacherId: null }]); setNewGroupName(''); } catch(e) { alert(e.message); }
@@ -224,12 +245,6 @@ const AdminPanel = () => {
           </div>
 
           <div className="flex gap-2">
-             <button onClick={() => navigate('/chat')} className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50">
-                <MessageCircle size={18} /> Xabarlar
-             </button>
-             <button onClick={() => navigate('/admin/game-builder')} className="hidden md:flex items-center gap-2 bg-white/80 px-4 py-3.5 rounded-2xl hover:bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-wide transition-all shadow-sm border border-white/50">
-                <Gamepad2 size={18} /> O'yin Sozlamalari
-             </button>
              <button onClick={handleLogout} className="bg-white/80 p-3.5 rounded-2xl hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-all shadow-sm border border-white/50 group">
                 <LogOut size={20} className="group-hover:-translate-x-1 transition-transform"/>
              </button>
@@ -383,36 +398,57 @@ const AdminPanel = () => {
                   {groups.map(g => {
                     const hasTeacher = !!g.teacherId;
                     return (
-                      <div key={g.id} className={`flex flex-col md:flex-row md:items-center justify-between p-5 rounded-[2rem] border transition-all hover:-translate-y-1 hover:shadow-md ${hasTeacher ? 'bg-white border-slate-100' : 'bg-amber-50/50 border-amber-100'}`}>
-                          <div className="flex items-center gap-4 mb-4 md:mb-0">
-                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-white shadow-sm ${hasTeacher ? 'bg-gradient-to-br from-emerald-400 to-teal-500' : 'bg-gradient-to-br from-amber-400 to-orange-400'}`}><Layers size={24} /></div>
-                              <div><h4 className="font-black text-slate-800 text-lg">{g.name}</h4><p className={`text-[10px] font-bold uppercase tracking-widest ${hasTeacher ? 'text-emerald-500' : 'text-amber-500'}`}>{hasTeacher ? 'Faol Guruh' : 'O\'qituvchi Biriktirilmagan'}</p></div>
-                          </div>
-                          
-                          <div className="flex flex-col gap-2 w-full md:w-auto">
-                              {/* 1. Main Teacher */}
-                              <div className="relative w-full md:w-64">
-                                  <select className={`w-full appearance-none pl-10 pr-10 py-3 rounded-xl text-xs font-black border outline-none cursor-pointer transition-all shadow-sm ${hasTeacher ? 'bg-slate-50 text-slate-700' : 'bg-amber-100 text-amber-700'}`} value={g.teacherId||""} onChange={(e)=>assignTeacherToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
-                                      <option value="">-- Asosiy O'qituvchi --</option>
-                                      {teachers.map(t=><option key={t.id} value={t.id} className="text-slate-800 font-bold">{t.name}</option>)}
-                                  </select>
-                                  <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14}/>
-                                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" size={14}/>
+                      <div key={g.id} className={`group relative p-6 rounded-[2rem] border transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${hasTeacher ? 'bg-white border-slate-100' : 'bg-amber-50/40 border-amber-100'}`}>
+                          <div className="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
+                              {/* Icon & Info */}
+                              <div className="flex items-center gap-5">
+                                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-white shadow-lg transform group-hover:scale-110 transition-transform duration-300 ${hasTeacher ? 'bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-200' : 'bg-gradient-to-br from-amber-400 to-orange-400 shadow-amber-200'}`}>
+                                      <Layers size={28} />
+                                  </div>
+                                  <div>
+                                      <h4 className="font-black text-slate-800 text-xl tracking-tight mb-1">{g.name}</h4>
+                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${hasTeacher ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                                          <span className={`w-1.5 h-1.5 rounded-full ${hasTeacher ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                                          {hasTeacher ? 'Faol Guruh' : 'O\'qituvchi Yo\'q'}
+                                      </div>
+                                  </div>
                               </div>
+                              
+                              {/* Controls */}
+                              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch">
+                                   {/* Selects container */}
+                                   <div className="flex flex-col gap-2 w-full md:w-64">
+                                       {/* 1. Main Teacher */}
+                                       <div className="relative">
+                                           <select className={`w-full appearance-none pl-10 pr-10 py-2.5 rounded-xl text-xs font-black border outline-none cursor-pointer transition-all shadow-sm ${hasTeacher ? 'bg-slate-50 text-slate-700 border-slate-200 focus:border-indigo-500' : 'bg-amber-100 text-amber-800 border-amber-200'}`} value={g.teacherId||""} onChange={(e)=>assignTeacherToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
+                                               <option value="">-- Asosiy O'qituvchi --</option>
+                                               {teachers.map(t=><option key={t.id} value={t.id} className="text-slate-800 font-bold">{t.name}</option>)}
+                                           </select>
+                                           <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14}/>
+                                           <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" size={14}/>
+                                       </div>
 
-                              {/* 2. Assistant Teacher */}
-                              <div className="relative w-full md:w-64">
-                                  <select className="w-full appearance-none pl-10 pr-10 py-3 rounded-xl text-xs font-black border border-dashed border-slate-300 outline-none cursor-pointer transition-all shadow-sm bg-white text-slate-500 hover:border-indigo-300" value={g.assistantTeacherId||""} onChange={(e)=>assignAssistantToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
-                                      <option value="">-- Yordamchi (Ixtiyoriy) --</option>
-                                      {teachers.filter(t => t.id !== g.teacherId).map(t=><option key={t.id} value={t.id} className="text-slate-800 font-bold">{t.name}</option>)}
-                                  </select>
-                                  <UserCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
-                                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-300" size={14}/>
+                                       {/* 2. Assistant Teacher */}
+                                       <div className="relative">
+                                           <select className="w-full appearance-none pl-10 pr-10 py-2.5 rounded-xl text-xs font-black border border-dashed border-slate-300 outline-none cursor-pointer transition-all shadow-sm bg-white text-slate-500 hover:border-indigo-300 focus:border-indigo-500" value={g.assistantTeacherId||""} onChange={(e)=>assignAssistantToGroup(g.id, e.target.value)} disabled={processingId===g.id}>
+                                               <option value="">-- Yordamchi (Ixtiyoriy) --</option>
+                                               {teachers.filter(t => t.id !== g.teacherId).map(t=><option key={t.id} value={t.id} className="text-slate-800 font-bold">{t.name}</option>)}
+                                           </select>
+                                           <UserCheck className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14}/>
+                                           <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-300" size={14}/>
+                                       </div>
+                                   </div>
+                                   
+                                   {/* Actions */}
+                                   <div className="flex sm:flex-col gap-2 justify-center border-t sm:border-t-0 sm:border-l border-slate-100 pt-4 sm:pt-0 sm:pl-4 mt-2 sm:mt-0">
+                                       <button onClick={() => openEditGroupModal(g)} className="flex-1 sm:flex-none p-3 bg-indigo-50 text-indigo-500 hover:bg-indigo-100 hover:text-indigo-600 rounded-xl transition-colors" title="Tahrirlash">
+                                          <Pencil size={18} />
+                                       </button>
+                                       <button onClick={() => deleteGroup(g.id)} className="flex-1 sm:flex-none p-3 bg-rose-50 text-rose-400 hover:bg-rose-100 hover:text-rose-500 rounded-xl transition-colors" title="O'chirish">
+                                          <Trash2 size={18} />
+                                       </button>
+                                   </div>
                               </div>
-                          </div>
-
-                          <div className="ml-2">
-                              <button onClick={()=>deleteGroup(g.id)} className="p-3.5 bg-slate-100/50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 rounded-2xl transition-all shadow-sm"><Trash2 size={18}/></button>
                           </div>
                       </div>
                     )
@@ -493,6 +529,28 @@ const AdminPanel = () => {
                              </div>
                           </div>
                           <button className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:shadow-xl hover:scale-[1.02] transition-all active:scale-95">Saqlash</button>
+                      </form>
+                   </div>
+              </div>
+          </div>
+      )}
+
+      {/* EDIT GROUP MODAL */}
+      {isEditGroupOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white/90 backdrop-blur-xl p-8 rounded-[2.5rem] w-full max-w-sm shadow-2xl border border-white/50 animate-in zoom-in-95 duration-300 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-200/50 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                   <div className="relative z-10">
+                      <div className="flex justify-between items-center mb-6">
+                          <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Pencil size={20} className="text-emerald-500"/> Guruhni Tahrirlash</h3>
+                          <button onClick={()=>setIsEditGroupOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20} className="text-slate-400"/></button>
+                      </div>
+                      <form onSubmit={saveGroupEdit} className="space-y-4">
+                          <div>
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Guruh Nomi</label>
+                             <input className="w-full px-5 py-4 bg-slate-50/80 rounded-2xl font-bold text-sm outline-none border border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 transition-all" value={editGroupName} onChange={e=>setEditGroupName(e.target.value)} placeholder="Guruh nomi..."/>
+                          </div>
+                          <button className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:shadow-xl hover:scale-[1.02] transition-all active:scale-95">Saqlash</button>
                       </form>
                    </div>
               </div>

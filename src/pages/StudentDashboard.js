@@ -467,7 +467,7 @@ const StudentDashboard = () => {
   if (loading) return <div className="h-screen bg-slate-50 flex items-center justify-center"><DashboardSkeleton /></div>;
 
   return (
-    <div className="fixed inset-0 h-[100dvh] w-full flex flex-col bg-slate-50 font-sans touch-none overflow-hidden">
+    <div className="fixed inset-0 h-[100dvh] w-full flex flex-col md:flex-row bg-slate-50 font-sans touch-none overflow-hidden">
       
       {/* BACKGROUND */}
       <div className="absolute inset-0 z-0 transition-all duration-500">
@@ -475,8 +475,54 @@ const StudentDashboard = () => {
          <div className="absolute inset-0 bg-white/20 backdrop-blur-1xl"></div>
       </div>
 
+      {/* 🔥 DESKTOP SIDEBAR */}
+      <div className="hidden md:flex w-20 lg:w-72 flex-col justify-between z-50 m-4 rounded-3xl bg-white/80 backdrop-blur-xl border border-white/40 shadow-2xl overflow-hidden transition-all duration-300">
+          <div className="flex flex-col h-full">
+              {/* Logo */}
+              <div className="p-6 flex items-center justify-center lg:justify-start gap-3 border-b border-slate-100/50">
+                  <div className="w-10 h-10 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 shrink-0">
+                      <Zap size={24} fill="currentColor"/>
+                  </div>
+                  <div className="hidden lg:block">
+                      <h1 className="font-black text-xl tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">CLC</h1>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em]">Student</p>
+                  </div>
+              </div>
+
+              {/* Nav Items */}
+              <div className="flex-1 overflow-y-auto py-6 px-3 space-y-2 custom-scrollbar">
+                  {navTabs.map((tab) => {
+                      const isActive = activeTab === tab.id;
+                      const Icon = tab.icon;
+                      return (
+                          <button 
+                              key={tab.id}
+                              onClick={() => { triggerHaptic(); if(tab.id === 'chat') navigate('/chat'); else if(tab.id === 'games') navigate('/games'); else setActiveTab(tab.id); }}
+                              className={`w-full flex items-center gap-4 p-3 rounded-2xl transition-all duration-300 group relative overflow-hidden ${isActive ? 'bg-slate-900 text-white shadow-lg shadow-slate-200' : 'hover:bg-white/60 text-slate-500 hover:text-slate-800'}`}
+                          >
+                              <div className={`relative z-10 p-2 rounded-xl transition-all duration-300 ${isActive ? 'bg-white/20 text-white' : 'bg-white text-slate-400 group-hover:text-indigo-500 group-hover:scale-110 shadow-sm'}`}>
+                                  <Icon size={20} />
+                                  {tab.isChat && unreadMessages > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
+                                  {tab.id === 'schedule' && hasNewHomework && !isActive && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}
+                              </div>
+                              <span className={`hidden lg:block font-bold text-sm tracking-wide relative z-10 ${isActive ? 'text-white' : ''}`}>{tab.label}</span>
+                              {isActive && <div className="absolute inset-0 bg-gradient-to-r from-slate-800 to-slate-900 z-0"></div>}
+                          </button>
+                      )
+                  })}
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="p-4 border-t border-slate-100/50 space-y-2">
+                  <button onClick={() => navigate('/settings')} className="w-full flex items-center gap-4 p-3 rounded-2xl hover:bg-white/60 text-slate-500 hover:text-slate-800 transition-all group"><div className="p-2 bg-white rounded-xl text-slate-400 group-hover:text-indigo-500 shadow-sm transition-all"><Settings size={20}/></div><span className="hidden lg:block font-bold text-xs uppercase tracking-wider">Sozlamalar</span></button>
+                  <button onClick={() => {if(window.confirm('Chiqish?')){signOut(auth); navigate('/');}}} className="w-full flex items-center gap-4 p-3 rounded-2xl hover:bg-red-50 text-slate-500 hover:text-red-500 transition-all group"><div className="p-2 bg-white rounded-xl text-slate-400 group-hover:text-red-500 shadow-sm transition-all"><LogOut size={20}/></div><span className="hidden lg:block font-bold text-xs uppercase tracking-wider">Chiqish</span></button>
+              </div>
+          </div>
+      </div>
+
+      <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
       {/* HEADER */}
-      <nav className="relative z-50 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm">
+      <nav className="relative z-50 shrink-0 bg-white/80 backdrop-blur-md border-b border-white/40 px-4 py-3 flex justify-between items-center shadow-sm md:bg-transparent md:border-none md:shadow-none md:pt-6 md:px-8">
             <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden border border-slate-200 shadow-sm">
                 <img src={getAvatarUrl(student?.avatarSeed || student?.name)} alt="avatar" className="w-full h-full object-cover"/>
@@ -491,8 +537,8 @@ const StudentDashboard = () => {
             <button onClick={() => setIsBgMenuOpen(!isBgMenuOpen)} className={`p-2 rounded-xl transition-all ${isBgMenuOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}><ImageIcon size={20} /></button>
             <button onClick={handleRefresh} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl active:bg-slate-200 transition-colors"><RefreshCcw size={20} className={isRefreshing ? "animate-spin text-indigo-500" : ""} /></button>
             <button onClick={toggleNotifications} className={`p-2 rounded-xl transition-all relative ${isNotifOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-indigo-600 bg-white/60'}`}><Bell size={20} />{unreadCount > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>}</button>
-            <button onClick={() => {triggerHaptic(); navigate('/settings');}} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl"><Settings size={20} /></button>
-            <button onClick={() => {triggerHaptic(); if(window.confirm('Chiqish?')){signOut(auth); navigate('/');}}} className="p-2 text-slate-400 hover:text-red-500 bg-white/60 rounded-xl"><LogOut size={20} /></button>
+            <button onClick={() => {triggerHaptic(); navigate('/settings');}} className="p-2 text-slate-400 hover:text-indigo-600 bg-white/60 rounded-xl md:hidden"><Settings size={20} /></button>
+            <button onClick={() => {triggerHaptic(); if(window.confirm('Chiqish?')){signOut(auth); navigate('/');}}} className="p-2 text-slate-400 hover:text-red-500 bg-white/60 rounded-xl md:hidden"><LogOut size={20} /></button>
             </div>
       </nav>
 
@@ -535,7 +581,7 @@ const StudentDashboard = () => {
       )}
 
       {/* CONTENT */}
-      <div className="flex-1 overflow-y-auto z-10 relative scrollbar-hide pb-28 p-4 overscroll-contain">
+      <div className="flex-1 overflow-y-auto z-10 relative scrollbar-hide pb-28 p-4 overscroll-contain md:pb-4 md:px-8">
         <div className="max-w-7xl mx-auto space-y-6">
             
             {/* 1. DASHBOARD */}
@@ -867,6 +913,7 @@ const StudentDashboard = () => {
             </div>
             )}
         </div>
+      </div>
       </div>
       
       {/* FLOATING NAV */}

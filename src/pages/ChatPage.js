@@ -251,8 +251,8 @@ const ChatPage = () => {
     <>
       <style>{styles}</style>
       
-      {/* 🔥 FIX 1: FIXED INSET-0 ISHLATILDI. Bu butun ekranni qotirib ushlab turadi */}
-      <div className="fixed inset-0 flex bg-gray-50 overflow-hidden font-sans">
+      {/* 🔥 FIX: fixed inset-0 o'rniga h-screen ishlatamiz, shunda sidebar marginini inobatga oladi */}
+      <div className="flex h-[100dvh] w-full bg-gray-50 overflow-hidden font-sans">
         
         {/* --- 1. SIDEBAR (LIST) --- */}
         <div className={`
