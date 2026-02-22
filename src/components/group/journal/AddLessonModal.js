@@ -26,7 +26,7 @@ const LessonModal = ({
             <div className="bg-white w-full max-w-sm h-[80dvh] sm:h-auto rounded-t-[2.5rem] sm:rounded-[2.5rem] relative z-10 flex flex-col shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                     <h3 className="text-xl font-black text-slate-800 mb-2 uppercase text-center italic">{editingLesson ? "Darsni Tahrirlash" : "Yangi Dars"}</h3>
-                    <form id="lesson-form" className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleSaveLesson(e); }}>
+                    <form id="lesson-form" className="space-y-4" onSubmit={handleSaveLesson}>
                         <input type="date" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonDate} onChange={e => setLessonDate(e.target.value)} />
                         <input type="text" placeholder="Mavzu Nomi" required className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-sm outline-none focus:border-indigo-500" value={lessonTopic} onChange={e => setLessonTopic(e.target.value)} />
 
