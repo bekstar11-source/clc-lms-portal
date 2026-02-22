@@ -1,16 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import {
-    ArrowLeft, X, Loader2, Edit2, Trash2,
-    UserPlus, Share2, Plus, ChevronDown, ChevronUp, Calendar,
-    Trophy, Zap, Crown, List, Percent, Save, Check, Users, BookOpen, RefreshCw, Clock
-} from 'lucide-react';
-import { db, auth } from '../firebase';
-import {
-    collection, query, where, getDocs, addDoc,
-    doc, getDoc, serverTimestamp, orderBy, updateDoc, deleteDoc, writeBatch
-} from 'firebase/firestore';
+import { Loader2 } from 'lucide-react';
 import { useGroupData } from '../hooks/useGroupData';
+import { useGroupActions } from '../hooks/useGroupActions';
 import GroupHeader from '../components/group/GroupHeader';
 import StudentsTab from '../components/group/StudentsTab';
 import JournalTab from '../components/group/JournalTab';
@@ -19,11 +11,8 @@ import AddStudentModal from '../components/group/AddStudentModal';
 import LessonModal from '../components/group/LessonModal';
 import MoveStudentModal from '../components/group/MoveStudentModal';
 
-// --- CONFIG ---
-const GRACE_PERIOD_DAYS = 7;
-const RETAKE_PERIOD_DAYS = 7;
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-// --- YORDAMCHI FUNKSIYALAR ---
 const triggerHaptic = (type = 'tap') => {
     if (navigator.vibrate) {
         if (type === 'tap') navigator.vibrate(10);
@@ -33,14 +22,25 @@ const triggerHaptic = (type = 'tap') => {
 };
 
 const getAvatarUrl = (seed) => {
-    const safeSeed = seed || "default";
+    const safeSeed = seed || 'default';
     const cleanSeed = safeSeed.replace('bot_', '');
     return `https://api.dicebear.com/7.x/notionists/svg?seed=${cleanSeed}&backgroundColor=e0e7ff,d1fae5,ffedd5`;
 };
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+const groupLessonsByMonth = (lessonList) => {
+    const groups = {};
+    lessonList.forEach(lesson => {
+        const date = new Date(lesson.date);
+        const monthKey = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+        if (!groups[monthKey]) groups[monthKey] = [];
+        groups[monthKey].push(lesson);
+    });
+    return groups;
+};
 
+// ─── COMPONENT ────────────────────────────────────────────────────────────────
 
 const GroupDetails = () => {
     const { groupId } = useParams();
@@ -48,52 +48,58 @@ const GroupDetails = () => {
     const location = useLocation();
     const highlightRef = useRef(null);
 
-    // UI Holati
+    // ── Data layer ────────────────────────────────────────────────────────────
+    const {
+        groupName, students, lessons, allGroups,
+        currentUserRole, loading, refreshing, fetchData,
+    } = useGroupData(groupId);
+
+    const groupedLessons = groupLessonsByMonth(lessons);
+
+    const actions = useGroupActions({
+        groupId,
+        lessons,
+        groupedLessons,
+        fetchData,
+        navigate,
+        triggerHaptic,
+    });
+
+    // ── UI state ──────────────────────────────────────────────────────────────
     const [activeTab, setActiveTab] = useState('students');
     const [studentViewMode, setStudentViewMode] = useState('list');
     const [modalExpandedMonths, setModalExpandedMonths] = useState({});
-    const { groupName, students, lessons, allGroups, currentUserRole, loading, refreshing, fetchData, setStudents } = useGroupData(groupId);
-    const [actionLoading, setActionLoading] = useState(false);
 
-    useEffect(() => {
-        if (!loading && !groupName) {
-            navigate('/');
-        }
-    }, [loading, groupName, navigate]);
-
-    // Modallar
+    // Modal open/close flags
     const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
     const [isGradeModalOpen, setIsGradeModalOpen] = useState(false);
     const [isAddLessonOpen, setIsAddLessonOpen] = useState(false);
     const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
 
-
+    // Move-student helper
+    const [selectedStudent, setSelectedStudent] = useState(null);
     const [targetGroupId, setTargetGroupId] = useState('');
 
-    // Dars Formasi
+    // Lesson form state
     const [lessonTopic, setLessonTopic] = useState('');
     const [lessonDate, setLessonDate] = useState('');
-    const [lessonTasks, setLessonTasks] = useState([{ id: generateId(), text: 'Uyga vazifa', completed: false }]);
+    const [lessonTasks, setLessonTasks] = useState([
+        { id: generateId(), text: 'Uyga vazifa', completed: false },
+    ]);
     const [isLessonDelayed, setIsLessonDelayed] = useState(false);
     const [editingLesson, setEditingLesson] = useState(null);
 
-    // Baholash
-    const [selectedStudent, setSelectedStudent] = useState(null);
-    const [gradeScores, setGradeScores] = useState({});
-    const [initialScores, setInitialScores] = useState({});
-    const [existingGradeDocs, setExistingGradeDocs] = useState({});
-    const [existingGradeObjects, setExistingGradeObjects] = useState({});
-    const [savedStatus, setSavedStatus] = useState({});
-    const [hasChanges, setHasChanges] = useState(false);
+    // ── Redirect if group not found ───────────────────────────────────────────
+    useEffect(() => {
+        if (!loading && !groupName) navigate('/');
+    }, [loading, groupName, navigate]);
 
-    // --- MA'LUMOT OLISH ---
-    // Hooks orgali olib chiqildi
-
+    // ── Auto-open grade modal when navigated with a student id ────────────────
     useEffect(() => {
         if (location.state?.openStudentId && students.length > 0) {
             const target = students.find(s => s.id === location.state.openStudentId);
             if (target) {
-                openGradeModal(target);
+                handleOpenGradeModal(target);
                 setTimeout(() => {
                     if (highlightRef.current) {
                         highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -102,42 +108,35 @@ const GroupDetails = () => {
                 }, 800);
             }
         }
-    }, [students, location.state]);
+    }, [students, location.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const getDisplayedStudents = () => {
-        let list = [...students];
-        if (studentViewMode === 'leaderboard') return list.sort((a, b) => b.gameXp - a.gameXp);
-        return list;
-    };
-
-    const groupLessonsByMonth = (lessonList) => {
-        const groups = {};
-        lessonList.forEach(lesson => {
-            const date = new Date(lesson.date);
-            const monthKey = date.toLocaleString('default', { month: 'long', year: 'numeric' });
-            if (!groups[monthKey]) groups[monthKey] = [];
-            groups[monthKey].push(lesson);
-        });
-        return groups;
-    };
-
-    const groupedLessons = groupLessonsByMonth(lessons);
-    const toggleModalMonth = (month) => {
-        triggerHaptic();
-        setModalExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
-    };
+    // ─── EVENT HANDLERS ───────────────────────────────────────────────────────
 
     const handleForceRefresh = () => {
         triggerHaptic();
         fetchData(true);
     };
 
-    const handleDeleteGroup = async () => { if (currentUserRole !== 'admin') return alert("Huquqingiz yo'q!"); if (window.confirm(`"${groupName}" guruhini butunlay o'chirib yubormoqchimisiz?`)) { setActionLoading(true); await deleteDoc(doc(db, "groups", groupId)); navigate('/'); } };
+    // Grade modal
 
-    const handleMoveStudent = async () => { if (!targetGroupId) return alert("Guruhni tanlang!"); setActionLoading(true); try { await updateDoc(doc(db, "students", selectedStudent.id), { groupId: targetGroupId }); setIsMoveModalOpen(false); fetchData(true); alert("Ko'chirildi!"); } catch (e) { alert(e.message); } finally { setActionLoading(false); } };
-    const handleDeleteStudent = async (id, name) => { if (window.confirm(`${name} o'chirilsinmi?`)) { await deleteDoc(doc(db, "students", id)); fetchData(true); } };
+    const handleOpenGradeModal = (student) => {
+        setSelectedStudent(student);
+        setIsGradeModalOpen(true);
+        actions.openGradeModal(student, setModalExpandedMonths);
+    };
 
-    // --- LESSON MANAGEMENT ---
+    const handleSaveAllGrades = (e) => {
+        e.preventDefault();
+        actions.handleSaveAllGrades(selectedStudent, () => setIsGradeModalOpen(false));
+    };
+
+    const toggleModalMonth = (month) => {
+        triggerHaptic();
+        setModalExpandedMonths(prev => ({ ...prev, [month]: !prev[month] }));
+    };
+
+    // Lesson modal
+
     const handleOpenNewLesson = () => {
         triggerHaptic();
         setEditingLesson(null);
@@ -153,8 +152,9 @@ const GroupDetails = () => {
         const tasksWithIds = (lesson.tasks || []).map(t =>
             t.id ? t : { ...t, id: generateId() }
         );
-        if (tasksWithIds.length === 0) tasksWithIds.push({ id: generateId(), text: 'Uyga vazifa', completed: false });
-
+        if (tasksWithIds.length === 0) {
+            tasksWithIds.push({ id: generateId(), text: 'Uyga vazifa', completed: false });
+        }
         setEditingLesson({ ...lesson, tasks: tasksWithIds });
         setLessonTopic(lesson.topic);
         setLessonDate(lesson.date);
@@ -163,241 +163,52 @@ const GroupDetails = () => {
         setIsAddLessonOpen(true);
     };
 
-    const handleSaveLesson = async (e) => {
+    const handleSaveLesson = (e) => {
         if (e) e.preventDefault();
         const cleanTasks = lessonTasks.filter(t => t.text.trim() !== '');
-        if (!lessonTopic.trim() || !lessonDate) return alert("Mavzu va sana kiritilishi shart!");
-
-        setActionLoading(true);
-        try {
-            if (editingLesson && editingLesson.id) {
-                const batch = writeBatch(db);
-                const lessonRef = doc(db, "lessons", editingLesson.id);
-
-                // 🔥 ESKI MURAKKAB KOD OLIB TASHLANDI:
-                // Endi taskType o'zgarsa ham, baholar ID orqali bog'langani uchun muammo bo'lmaydi.
-
-                batch.update(lessonRef, {
-                    topic: lessonTopic,
-                    date: lessonDate,
-                    tasks: cleanTasks,
-                    isDelayed: isLessonDelayed
-                });
-
-                await batch.commit();
-            } else {
-                await addDoc(collection(db, "lessons"), {
-                    groupId,
-                    topic: lessonTopic,
-                    date: lessonDate,
-                    tasks: cleanTasks,
-                    createdAt: serverTimestamp(),
-                    isDelayed: isLessonDelayed
-                });
-            }
-            setIsAddLessonOpen(false);
-            setEditingLesson(null);
-            await fetchData(true);
-            triggerHaptic('success');
-        } catch (e) { alert("Xatolik: " + e.message); }
-        finally { setActionLoading(false); }
-    };
-
-    const handleDeleteLesson = async (id) => { if (window.confirm(`O'chirilsinmi?`)) { await deleteDoc(doc(db, "lessons", id)); fetchData(true); } };
-
-    // --- 🔥 GRADING ACTIONS (O'ZGARDI) ---
-    const openGradeModal = async (student) => {
-        triggerHaptic();
-        setSelectedStudent(student);
-        setGradeScores({});
-        setInitialScores({});
-        setExistingGradeDocs({});
-        setExistingGradeObjects({});
-        setSavedStatus({});
-        setHasChanges(false);
-        setIsGradeModalOpen(true);
-
-        const q = query(collection(db, "grades"), where("studentId", "==", student.id));
-        const snap = await getDocs(q);
-
-        const scores = {};
-        const docs = {};
-        const objs = {};
-
-        snap.forEach(doc => {
-            const data = doc.data();
-
-            // 🔥 MUHIM QISM: ID ni aniqlash
-            let targetTaskId = data.taskId;
-
-            // Agar bazadagi ma'lumotda taskId bo'lmasa (eski data),
-            // Biz uni nomi (taskType) orqali current lessonlardan qidirib topamiz
-            if (!targetTaskId) {
-                const lesson = lessons.find(l => l.id === data.lessonId);
-                if (lesson && lesson.tasks) {
-                    const foundTask = lesson.tasks.find(t => t.text === data.taskType);
-                    if (foundTask) targetTaskId = foundTask.id;
-                }
-            }
-
-            // Agar ID topilsa (yoki bor bo'lsa), key ni ID bilan yasaymiz
-            if (targetTaskId) {
-                const key = `${data.lessonId}_${targetTaskId}`;
-                scores[key] = data.score;
-                docs[key] = doc.id;
-                objs[key] = data;
-            }
+        actions.handleSaveLesson({
+            lessonTopic,
+            lessonDate,
+            cleanTasks,
+            isLessonDelayed,
+            editingLesson,
+            onSuccess: () => {
+                setIsAddLessonOpen(false);
+                setEditingLesson(null);
+            },
         });
-
-        setGradeScores(scores);
-        setInitialScores({ ...scores });
-        setExistingGradeDocs(docs);
-        setExistingGradeObjects(objs);
-
-        const allMonths = {};
-        Object.keys(groupedLessons).forEach(m => allMonths[m] = true);
-        setModalExpandedMonths(allMonths);
     };
 
-    // 🔥 SCORE CHANGE: Key endi lessonId_taskId formatida
-    const handleScoreChange = (lessonId, taskId, value) => {
-        const key = `${lessonId}_${taskId}`;
-        const newScores = { ...gradeScores, [key]: value };
-        setGradeScores(newScores);
+    // Move-student modal
 
-        let isChanged = false;
-        const initialVal = initialScores[key] || '';
-        if (String(value) !== String(initialVal)) isChanged = true;
-        if (!isChanged) {
-            for (let k in newScores) {
-                const init = initialScores[k] || '';
-                if (String(newScores[k]) !== String(init)) {
-                    isChanged = true;
-                    break;
-                }
-            }
-        }
-        setHasChanges(isChanged);
-        if (savedStatus[key]) {
-            const newStatus = { ...savedStatus };
-            delete newStatus[key];
-            setSavedStatus(newStatus);
-        }
+    const handleMoveStudent = () => {
+        actions.handleMoveStudent(selectedStudent, targetGroupId, () => setIsMoveModalOpen(false));
     };
 
-    const handleDeleteGrade = async (lessonId, taskId) => {
-        triggerHaptic('error');
-        const key = `${lessonId}_${taskId}`;
-        const docId = existingGradeDocs[key];
+    // ─── DERIVED DATA ─────────────────────────────────────────────────────────
 
-        if (docId) {
-            if (window.confirm("Rostdan ham bu bahoni o'chirib yubormoqchimisiz?")) {
-                try {
-                    await deleteDoc(doc(db, "grades", docId));
-                    const newScores = { ...gradeScores };
-                    delete newScores[key];
-                    setGradeScores(newScores);
-                    const newDocs = { ...existingGradeDocs };
-                    delete newDocs[key];
-                    setExistingGradeDocs(newDocs);
-                    const newInitials = { ...initialScores };
-                    delete newInitials[key];
-                    setInitialScores(newInitials);
-                    triggerHaptic('success');
-                    fetchData(true);
-                } catch (e) { alert("Xatolik: " + e.message); }
-            }
-        } else {
-            handleScoreChange(lessonId, taskId, '');
-        }
+    const getDisplayedStudents = () => {
+        const list = [...students];
+        if (studentViewMode === 'leaderboard') return list.sort((a, b) => b.gameXp - a.gameXp);
+        return list;
     };
-
-    const handleSaveAllGrades = async (e) => {
-        e.preventDefault();
-        if (!hasChanges) return;
-
-        triggerHaptic('tap');
-        const newSavedStatus = {};
-
-        try {
-            const entries = Object.entries(gradeScores);
-            const batch = writeBatch(db);
-            let changeCount = 0;
-
-            for (const [key, scoreVal] of entries) {
-                if (String(scoreVal) === String(initialScores[key])) continue;
-                if (scoreVal === '' || scoreVal === null) continue;
-
-                // 🔥 Key dan ID larni ajratib olish
-                const firstUnderscore = key.indexOf('_');
-                const lessonId = key.substring(0, firstUnderscore);
-                const taskId = key.substring(firstUnderscore + 1);
-
-                const scoreNum = Number(scoreVal);
-                const lesson = lessons.find(l => l.id === lessonId);
-                const topic = lesson ? lesson.topic : 'Vazifa';
-
-                // Task nomini topish (faqat display uchun)
-                const taskObj = lesson?.tasks.find(t => t.id === taskId);
-                const taskName = taskObj ? taskObj.text : 'Vazifa';
-
-                const eId = existingGradeDocs[key];
-                const oldData = existingGradeObjects[key];
-
-                let gradeData = {
-                    score: scoreNum,
-                    date: serverTimestamp(),
-                    status: 'active',
-                    retakeDeadline: null,
-                    // 🔥 ENDI ID HAM SAQLANADI
-                    taskId: taskId
-                };
-
-                if (scoreNum < 60) {
-                    const deadline = new Date();
-                    deadline.setDate(deadline.getDate() + RETAKE_PERIOD_DAYS);
-                    gradeData.status = 'retake_needed';
-                    gradeData.retakeDeadline = deadline;
-                    if (!eId) gradeData.previousScore = null;
-                }
-                if (eId && oldData && (oldData.status === 'retake_submitted' || oldData.status === 'retake_needed')) {
-                    gradeData.previousScore = oldData.score;
-                }
-
-                if (eId) {
-                    const gradeRef = doc(db, "grades", eId);
-                    // taskId yangilanmasa ham bo'ladi, lekin ishonch uchun qo'shamiz
-                    batch.update(gradeRef, { ...gradeData, taskType: taskName });
-                } else {
-                    const newRef = doc(collection(db, "grades"));
-                    batch.set(newRef, {
-                        studentId: selectedStudent.id,
-                        studentName: selectedStudent.name,
-                        groupId,
-                        lessonId,
-                        taskType: taskName, // Nomi ham tursin (zaxira uchun)
-                        comment: topic,
-                        ...gradeData
-                    });
-                }
-                newSavedStatus[key] = true;
-                changeCount++;
-            }
-
-            if (changeCount > 0) {
-                await batch.commit();
-                setSavedStatus(newSavedStatus);
-                triggerHaptic('success');
-                setTimeout(() => { setIsGradeModalOpen(false); fetchData(true); }, 500);
-            } else {
-                setIsGradeModalOpen(false);
-            }
-        } catch (er) { alert("Xatolik: " + er.message); }
-    };
-
-    if ((loading || actionLoading) && !isAddStudentOpen && !isMoveModalOpen && !isGradeModalOpen && !isAddLessonOpen) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
 
     const displayedStudents = getDisplayedStudents();
+
+    // ─── LOADING GUARD ────────────────────────────────────────────────────────
+
+    if (
+        (loading || actions.actionLoading) &&
+        !isAddStudentOpen && !isMoveModalOpen && !isGradeModalOpen && !isAddLessonOpen
+    ) {
+        return (
+            <div className="h-screen flex items-center justify-center bg-slate-50">
+                <Loader2 className="animate-spin text-indigo-600" size={40} />
+            </div>
+        );
+    }
+
+    // ─── RENDER ───────────────────────────────────────────────────────────────
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans touch-manipulation pb-20 md:ml-72 transition-all duration-300">
@@ -408,7 +219,7 @@ const GroupDetails = () => {
                 studentsCount={students.length}
                 refreshing={refreshing}
                 onRefresh={handleForceRefresh}
-                onDeleteGroup={handleDeleteGroup}
+                onDeleteGroup={() => actions.handleDeleteGroup(groupName, currentUserRole)}
                 currentUserRole={currentUserRole}
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
@@ -427,11 +238,11 @@ const GroupDetails = () => {
                         setStudentViewMode={setStudentViewMode}
                         currentUserRole={currentUserRole}
                         setIsAddStudentOpen={setIsAddStudentOpen}
-                        openGradeModal={openGradeModal}
+                        openGradeModal={handleOpenGradeModal}
                         setSelectedStudent={setSelectedStudent}
                         setTargetGroupId={setTargetGroupId}
                         setIsMoveModalOpen={setIsMoveModalOpen}
-                        handleDeleteStudent={handleDeleteStudent}
+                        handleDeleteStudent={actions.handleDeleteStudent}
                     />
                 )}
 
@@ -442,12 +253,13 @@ const GroupDetails = () => {
                         lessons={lessons}
                         handleOpenNewLesson={handleOpenNewLesson}
                         handleOpenEditLesson={handleOpenEditLesson}
-                        handleDeleteLesson={handleDeleteLesson}
+                        handleDeleteLesson={actions.handleDeleteLesson}
                     />
                 )}
             </div>
 
             {/* MODALS */}
+
             <GradeModal
                 isGradeModalOpen={isGradeModalOpen}
                 setIsGradeModalOpen={setIsGradeModalOpen}
@@ -455,17 +267,17 @@ const GroupDetails = () => {
                 groupedLessons={groupedLessons}
                 modalExpandedMonths={modalExpandedMonths}
                 toggleModalMonth={toggleModalMonth}
-                existingGradeDocs={existingGradeDocs}
-                existingGradeObjects={existingGradeObjects}
-                gradeScores={gradeScores}
-                savedStatus={savedStatus}
+                existingGradeDocs={actions.existingGradeDocs}
+                existingGradeObjects={actions.existingGradeObjects}
+                gradeScores={actions.gradeScores}
+                savedStatus={actions.savedStatus}
                 location={location}
                 highlightRef={highlightRef}
-                handleScoreChange={handleScoreChange}
-                handleDeleteGrade={handleDeleteGrade}
+                handleScoreChange={actions.handleScoreChange}
+                handleDeleteGrade={actions.handleDeleteGrade}
                 handleSaveAllGrades={handleSaveAllGrades}
                 loading={loading}
-                hasChanges={hasChanges}
+                hasChanges={actions.hasChanges}
             />
 
             <AddStudentModal
@@ -500,7 +312,7 @@ const GroupDetails = () => {
                 targetGroupId={targetGroupId}
                 setTargetGroupId={setTargetGroupId}
                 handleMoveStudent={handleMoveStudent}
-                loading={actionLoading}
+                loading={actions.actionLoading}
             />
         </div>
     );

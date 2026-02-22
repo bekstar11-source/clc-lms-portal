@@ -45,54 +45,90 @@ export const useTeacherGroups = () => {
             const uniqueGroups = mainData.groups;
             if (!uniqueGroups.length) return { retakeAlerts: [], debtors: [] };
 
-            const groupsDataPromises = uniqueGroups.map(async (grp) => {
-                const qStudents = query(collection(db, "students"), where("groupId", "==", grp.id));
-                const qGrades = query(collection(db, "grades"), where("groupId", "==", grp.id), where("status", "==", "retake_submitted"));
-
-                const [studSnap, gradesSnap] = await Promise.all([
-                    getDocs(qStudents), getDocs(qGrades)
-                ]);
-
-                return {
-                    groupName: grp.name,
-                    groupId: grp.id,
-                    students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-                    gradeDocs: gradesSnap.docs
-                };
+            // Build a lookup map: groupId -> { name }
+            const groupMeta = {};
+            uniqueGroups.forEach(grp => {
+                groupMeta[grp.id] = { name: grp.name };
             });
 
-            const allGroupsData = await Promise.all(groupsDataPromises);
+            // Firebase 'in' operator supports up to 30 items per query.
+            // Chunk groupIds into batches of 30 to stay within the limit.
+            const groupIds = uniqueGroups.map(g => g.id);
+            const chunkArray = (arr, size) => {
+                const chunks = [];
+                for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+                return chunks;
+            };
+            const idChunks = chunkArray(groupIds, 30);
+
+            // Fire ONE batched query for students and ONE for retake grades
+            // (per chunk if > 30 groups). Total round trips: 2 * ceil(N/30) instead of 2*N.
+            const [allStudentDocs, allGradeDocs] = await Promise.all([
+                Promise.all(
+                    idChunks.map(chunk =>
+                        getDocs(query(collection(db, "students"), where("groupId", "in", chunk)))
+                    )
+                ).then(snaps => snaps.flatMap(s => s.docs)),
+                Promise.all(
+                    idChunks.map(chunk =>
+                        getDocs(query(
+                            collection(db, "grades"),
+                            where("groupId", "in", chunk),
+                            where("status", "==", "retake_submitted")
+                        ))
+                    )
+                ).then(snaps => snaps.flatMap(s => s.docs))
+            ]);
+
+            // Group students by groupId in-memory
+            const studentsByGroup = {};
+            allStudentDocs.forEach(d => {
+                const data = d.data();
+                const gid = data.groupId;
+                if (!studentsByGroup[gid]) studentsByGroup[gid] = [];
+                studentsByGroup[gid].push({ id: d.id, ...data });
+            });
 
             let alerts = [];
             let allDebtors = [];
 
-            allGroupsData.forEach(({ groupName, groupId, students, gradeDocs }) => {
-                const studentsMap = {};
-                students.forEach(s => {
-                    studentsMap[s.id] = s.name;
-                    // Database'dagi tayyor average score ni tekshirib qarzdorlarga qo'shamiz!
-                    // Frontend HISOB-KITOB QILMAYDI! Hamma og'ir ish Backend (Cloud Functions) da!
-                    const avg = s.averageScore || 0;
-                    if (avg < 60) {
-                        allDebtors.push({
-                            id: s.id, name: s.name, groupId: groupId,
-                            groupName: groupName, averageScore: avg, avatarSeed: s.avatarSeed
-                        });
-                    }
-                });
+            // Build studentsMap across all groups for fast name lookup in grade alerts
+            const studentsMap = {};
+            allStudentDocs.forEach(d => {
+                const data = d.data();
+                studentsMap[d.id] = data.name;
+            });
 
-                gradeDocs.forEach(d => {
-                    const g = d.data();
-                    alerts.push({
-                        id: d.id,
-                        studentName: studentsMap[g.studentId] || 'Unknown',
-                        groupName: groupName,
-                        topic: g.comment,
-                        groupId: groupId,
-                        studentId: g.studentId,
-                        highlightKey: `${g.lessonId}_${g.taskType}`,
-                        date: g.date ? g.date.toDate().toISOString() : new Date().toISOString()
+            // Process debtors from students
+            allStudentDocs.forEach(d => {
+                const s = { id: d.id, ...d.data() };
+                const gid = s.groupId;
+                const groupName = groupMeta[gid]?.name || '';
+                // Database'dagi tayyor average score ni tekshirib qarzdorlarga qo'shamiz!
+                // Frontend HISOB-KITOB QILMAYDI! Hamma og'ir ish Backend (Cloud Functions) da!
+                const avg = s.averageScore || 0;
+                if (avg < 60) {
+                    allDebtors.push({
+                        id: s.id, name: s.name, groupId: gid,
+                        groupName: groupName, averageScore: avg, avatarSeed: s.avatarSeed
                     });
+                }
+            });
+
+            // Process retake alerts from grades
+            allGradeDocs.forEach(d => {
+                const g = d.data();
+                const gid = g.groupId;
+                const groupName = groupMeta[gid]?.name || '';
+                alerts.push({
+                    id: d.id,
+                    studentName: studentsMap[g.studentId] || 'Unknown',
+                    groupName: groupName,
+                    topic: g.comment,
+                    groupId: gid,
+                    studentId: g.studentId,
+                    highlightKey: `${g.lessonId}_${g.taskType}`,
+                    date: g.date ? g.date.toDate().toISOString() : new Date().toISOString()
                 });
             });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../firebase';
 import {
     collection, query, where, getDocs,
@@ -16,7 +16,7 @@ export const useGroupData = (groupId) => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    const fetchData = async (forceRefresh = false) => {
+    const fetchData = useCallback(async (forceRefresh = false) => {
         if (!groupId) return;
         try {
             if (forceRefresh) setRefreshing(true);
@@ -70,9 +70,9 @@ export const useGroupData = (groupId) => {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, [groupId]);
 
-    useEffect(() => { fetchData(); }, [groupId]);
+    useEffect(() => { fetchData(); }, [fetchData]);
 
     return {
         groupName,
