@@ -6,8 +6,8 @@ import {
 } from 'firebase/firestore';
 import { 
   X, Trash2, Edit2, Plus, Star,
-  Calendar as CalendarIcon, Users, Loader2, Save, Trophy, BarChart3,
-  Target, BookOpen, Sparkles, Zap, RefreshCw, Search, CheckCircle2
+  Calendar as CalendarIcon, Users, Loader2, Trophy,
+  Target, BookOpen, Sparkles, RefreshCw, Search, CheckCircle2
 } from 'lucide-react';
 
 // --- HELPER: UUID FOR TASKS ---
@@ -39,7 +39,7 @@ const Assignments = () => {
   const [savingStatus, setSavingStatus] = useState(null);
   const [studentSearch, setStudentSearch] = useState('');
 
-  // 1. DATA LOADING (WITH CACHE STRATEGY & NORMALIZATION)
+  // 1. DATA LOADING
   useEffect(() => {
     const loadAllData = async (forceRefresh = false) => {
       setPageLoading(true);
@@ -79,7 +79,6 @@ const Assignments = () => {
             const groupSnap = await getDocs(qGroups);
             fetchedGroups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
         } else {
-            // 🔥 ASSISTANT FIX: 2 ta Query (Teacher va Assistant)
             const qMain = query(collection(db, "groups"), where("teacherId", "==", user.uid));
             const qAssist = query(collection(db, "groups"), where("assistantTeacherId", "==", user.uid));
             
@@ -90,7 +89,6 @@ const Assignments = () => {
             const mainGroups = mainSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             const assistGroups = assistSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             
-            // Birlashtirish va dublikatlarni tozalash
             const allRawGroups = [...mainGroups, ...assistGroups];
             fetchedGroups = allRawGroups.filter((group, index, self) =>
                 index === self.findIndex((t) => t.id === group.id)
@@ -173,10 +171,15 @@ const Assignments = () => {
 
   const getLessonProgress = (lessonId) => {
     if (students.length === 0) return 0;
-    const gradedStudentIds = new Set(
-        allGrades.filter(g => g.lessonId === lessonId).map(g => g.studentId)
-    );
-    return Math.round((gradedStudentIds.size / students.length) * 100);
+    const lesson = lessons.find(l => l.id === lessonId);
+    if (!lesson || !lesson.tasks) return 0;
+
+    // Logic: Barcha tasklar bo'yicha baholanganlik foizi
+    const lessonGrades = allGrades.filter(g => g.lessonId === lessonId);
+    const totalPossibleGrades = students.length * lesson.tasks.length;
+    if (totalPossibleGrades === 0) return 0;
+
+    return Math.round((lessonGrades.length / totalPossibleGrades) * 100);
   };
 
   const getGroupStyle = (index) => {
@@ -203,7 +206,10 @@ const Assignments = () => {
       let newData = { ...currentGroupData };
 
       if (type === 'grade_update') {
-          newData.grades = newData.grades.map(g => (g.studentId === item.studentId && g.taskType === item.taskType && g.lessonId === item.lessonId) ? { ...g, score: item.score } : g);
+          // ID orqali yangilash
+          newData.grades = newData.grades.map(g => 
+            (g.id === item.id) ? { ...g, score: item.score } : g
+          );
       } else if (type === 'grade_add') {
           newData.grades = [...newData.grades, item];
       } else if (type === 'lesson_update') {
@@ -218,25 +224,39 @@ const Assignments = () => {
       localStorage.setItem('assignmentsCache', JSON.stringify({ groups, details: newCache }));
   };
 
-  // --- MODAL ACTIONS ---
+  // --- 🔥 GRADING LOGIC (FIXED) ---
   const openGradingModal = async (lesson) => {
     setGradingLesson(lesson);
     setStudentSearch('');
     setLessonGrades({});
     
-    // Load existing grades
     const gradesForLesson = allGrades.filter(g => g.lessonId === lesson.id);
     const loadedGrades = {};
+
     gradesForLesson.forEach(g => {
-        // Use text key for now (backward compatibility)
-        loadedGrades[`${g.studentId}_${g.taskType}`] = { score: g.score, docId: g.id };
+        let taskIdKey = g.taskId;
+
+        // Fallback: Agar taskId bo'lmasa (eski data), nom orqali ID ni topamiz
+        if (!taskIdKey && lesson.tasks) {
+            const foundTask = lesson.tasks.find(t => t.text === g.taskType);
+            if (foundTask) taskIdKey = foundTask.id;
+        }
+
+        // Key: StudentID_TaskID
+        if (taskIdKey) {
+            loadedGrades[`${g.studentId}_${taskIdKey}`] = { score: g.score, docId: g.id };
+        }
     });
     setLessonGrades(loadedGrades);
   };
 
-  const handleGradeChange = (studentId, taskName, value) => {
-    const key = `${studentId}_${taskName}`;
-    if (value === '') { setLessonGrades(prev => ({ ...prev, [key]: { ...prev[key], score: '' } })); return; }
+  // Key endi taskId bilan ishlaydi
+  const handleGradeChange = (studentId, taskId, value) => {
+    const key = `${studentId}_${taskId}`;
+    if (value === '') { 
+        setLessonGrades(prev => ({ ...prev, [key]: { ...prev[key], score: '' } })); 
+        return; 
+    }
     let numValue = parseInt(value, 10);
     if (isNaN(numValue)) return;
     if (numValue > 100) numValue = 100;
@@ -244,9 +264,15 @@ const Assignments = () => {
     setLessonGrades(prev => ({ ...prev, [key]: { ...prev[key], score: numValue } }));
   };
 
-  const saveGrade = async (studentId, studentName, taskName, value) => {
-    const key = `${studentId}_${taskName}`;
+  const saveGrade = async (studentId, studentName, task, value) => {
+    // task objectini qabul qilamiz: { id: "...", text: "..." }
+    const taskId = task.id;
+    const taskName = task.text;
+
+    const key = `${studentId}_${taskId}`;
     const currentEntry = lessonGrades[key];
+    
+    // Agar qiymat bo'sh bo'lsa va bazada ham yo'q bo'lsa, hech narsa qilmaymiz
     if ((value === '' || value === undefined) && !currentEntry?.docId) return;
 
     setSavingStatus('saving');
@@ -254,16 +280,37 @@ const Assignments = () => {
 
     try {
         if (currentEntry?.docId) {
-            await updateDoc(doc(db, "grades", currentEntry.docId), { score: safeScore, date: serverTimestamp() });
-            updateCacheLocally('grade_update', { studentId, taskType: taskName, lessonId: gradingLesson.id, score: safeScore });
-        } else {
-            const newDoc = await addDoc(collection(db, "grades"), {
-                studentId, studentName, groupId: selectedGroupId, 
-                lessonId: gradingLesson.id, taskType: taskName, 
-                comment: gradingLesson.topic, score: safeScore, date: serverTimestamp()
+            // Update
+            await updateDoc(doc(db, "grades", currentEntry.docId), { 
+                score: safeScore, 
+                date: serverTimestamp(),
+                // taskId ni ham yangilab qo'yamiz (har ehtimolga qarshi)
+                taskId: taskId 
             });
+            updateCacheLocally('grade_update', { id: currentEntry.docId, score: safeScore });
+        } else {
+            // Create
+            const newDoc = await addDoc(collection(db, "grades"), {
+                studentId, 
+                studentName, 
+                groupId: selectedGroupId, 
+                lessonId: gradingLesson.id, 
+                taskId: taskId,       // 🔥 ID SAQLANADI
+                taskType: taskName,   // Text ham saqlanadi (o'qish uchun)
+                comment: gradingLesson.topic, 
+                score: safeScore, 
+                date: serverTimestamp()
+            });
+            
             setLessonGrades(prev => ({ ...prev, [key]: { score: safeScore, docId: newDoc.id } }));
-            updateCacheLocally('grade_add', { id: newDoc.id, studentId, taskType: taskName, lessonId: gradingLesson.id, score: safeScore, groupId: selectedGroupId });
+            updateCacheLocally('grade_add', { 
+                id: newDoc.id, 
+                studentId, 
+                taskId, taskType: taskName, 
+                lessonId: gradingLesson.id, 
+                score: safeScore, 
+                groupId: selectedGroupId 
+            });
         }
         setSavingStatus('saved');
         setTimeout(() => setSavingStatus(null), 1000);
@@ -281,56 +328,26 @@ const Assignments = () => {
     setNewTasks(tasksWithIds);
   };
 
-  // --- BATCH UPDATE ---
+  // --- 🔥 BATCH UPDATE (SIMPLIFIED) ---
   const handleUpdate = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const batch = writeBatch(db);
-      
+      // Faqat lesson yangilanadi. Baholar taskId ga bog'langani uchun,
+      // ularni textini update qilish shart emas!
       const lessonRef = doc(db, "lessons", editingLesson.id);
-      batch.update(lessonRef, { 
+      await updateDoc(lessonRef, { 
           topic: newTopic, 
           tasks: newTasks, 
           updatedAt: serverTimestamp() 
       });
 
-      for (const newTask of newTasks) {
-          const oldTask = editingLesson.tasks.find(t => t.id === newTask.id);
-          if (oldTask && oldTask.text !== newTask.text) {
-              const qGrades = query(
-                  collection(db, "grades"), 
-                  where("lessonId", "==", editingLesson.id),
-                  where("taskType", "==", oldTask.text)
-              );
-              const gradesSnap = await getDocs(qGrades);
-              
-              gradesSnap.docs.forEach(gDoc => {
-                  batch.update(doc(db, "grades", gDoc.id), { 
-                      taskType: newTask.text,
-                      comment: newTopic
-                  });
-              });
-          }
-      }
-
-      await batch.commit();
-
       const updatedLesson = { ...editingLesson, topic: newTopic, tasks: newTasks };
       updateCacheLocally('lesson_update', updatedLesson);
-      refreshData(); 
       
       setEditingLesson(null);
     } catch (e) { alert(e.message); }
     finally { setLoading(false); }
-  };
-
-  const deleteTaskFromLesson = async (lessonId, currentTasks, taskIndex) => {
-    if(!window.confirm("Vazifani o'chirmoqchimisiz?")) return;
-    const updatedTasks = currentTasks.filter((_, i) => i !== taskIndex);
-    const targetLesson = lessons.find(l => l.id === lessonId);
-    await updateDoc(doc(db, "lessons", lessonId), { tasks: updatedTasks });
-    updateCacheLocally('lesson_update', { ...targetLesson, tasks: updatedTasks });
   };
 
   const filteredStudents = students.filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()));
@@ -426,7 +443,7 @@ const Assignments = () => {
                         
                         <div className="mt-2.5 flex items-center gap-2">
                             <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full transition-all duration-1000 ${progress === 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }}></div>
+                                <div className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }}></div>
                             </div>
                             <span className="text-[9px] font-bold text-slate-400">{progress}% Graded</span>
                         </div>
@@ -527,8 +544,11 @@ const Assignments = () => {
                                             </div>
                                         </td>
                                         {gradingLesson.tasks?.map((task, idx) => {
-                                            const taskName = typeof task === 'object' ? task.text : task;
-                                            const gradeData = lessonGrades[`${student.id}_${taskName}`] || { score: '' };
+                                            // 🔥 ID orqali key yasaymiz
+                                            const taskId = typeof task === 'object' ? task.id : null;
+                                            const key = `${student.id}_${taskId}`;
+                                            const gradeData = lessonGrades[key] || { score: '' };
+                                            
                                             return (
                                                 <td key={idx} className="p-2 border-l border-slate-50 text-center">
                                                     <input 
@@ -539,8 +559,9 @@ const Assignments = () => {
                                                         `}
                                                         placeholder="-"
                                                         value={gradeData.score !== undefined ? gradeData.score : ''}
-                                                        onChange={(e) => handleGradeChange(student.id, taskName, e.target.value)}
-                                                        onBlur={(e) => saveGrade(student.id, student.name, taskName, e.target.value)}
+                                                        // 🔥 ID yuboramiz
+                                                        onChange={(e) => handleGradeChange(student.id, taskId, e.target.value)}
+                                                        onBlur={(e) => saveGrade(student.id, student.name, task, e.target.value)}
                                                         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
                                                     />
                                                 </td>
