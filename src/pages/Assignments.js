@@ -445,30 +445,32 @@ const Assignments = () => {
     <div className="min-h-screen bg-[#F8FAFC] pb-32 font-sans touch-manipulation">
 
       {/* 1. HEADER */}
-      <div className="bg-white pt-6 pb-4 shadow-sm border-b border-slate-200 sticky top-0 z-40">
-        <div className="px-4 mb-4 flex justify-between items-end">
-          <div>
-            <h1 className="text-xl font-black text-slate-800 uppercase italic tracking-tight">Assignments</h1>
-            <p className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-              {lastUpdated ? `Updated: ${lastUpdated} ` : 'Syncing...'}
+      <div className="bg-white pt-safe pt-4 pb-3 shadow-sm border-b border-slate-200 sticky top-0 z-40">
+        <div className="px-4 mb-3 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-black text-slate-800 uppercase italic tracking-tight leading-none">Assignments</h1>
+            <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+              {lastUpdated ? `Updated: ${lastUpdated}` : 'Syncing...'}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={openAddLessonModal}
               disabled={!selectedGroupId}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-md shadow-indigo-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-indigo-600 text-white rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-indigo-700 shadow-md shadow-indigo-200 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus size={14} /> Yangi Dars
+              <Plus size={14} /> <span className="hidden xs:inline">Yangi</span> Dars
             </button>
-            <button onClick={refreshData} className="p-2 bg-slate-50 text-indigo-600 rounded-lg hover:bg-indigo-50 border border-slate-200 active:scale-95 transition-transform"><RefreshCw size={18} /></button>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center">
-              Count: {lessons.length}
-            </div>
+            <button
+              onClick={refreshData}
+              className="p-2 bg-slate-50 text-indigo-600 rounded-xl hover:bg-indigo-50 border border-slate-200 active:scale-95 transition-transform"
+            >
+              <RefreshCw size={16} />
+            </button>
           </div>
         </div>
 
-        <div className="flex overflow-x-auto px-4 gap-3 pb-2 no-scrollbar snap-x items-center">
+        <div className="flex overflow-x-auto px-4 gap-2.5 pb-1 no-scrollbar snap-x items-center">
           {groups.map((group, index) => {
             const isActive = selectedGroupId === group.id;
             const style = getGroupStyle(index);
@@ -479,18 +481,18 @@ const Assignments = () => {
                 key={group.id}
                 onClick={() => setSelectedGroupId(group.id)}
                 className={`snap-center shrink-0 rounded-2xl border transition-all duration-300 ease-in-out flex flex-col justify-center relative overflow-hidden ${isActive
-                  ? `w-48 h-20 px-5 items-start text-white shadow-lg ${style.active}`
-                  : `w-16 h-16 items-center hover:bg-opacity-80 ${style.bg} ${style.border} ${style.text}`
+                  ? `w-40 sm:w-48 h-[4.5rem] sm:h-20 px-4 sm:px-5 items-start text-white shadow-lg ${style.active}`
+                  : `w-14 sm:w-16 h-14 sm:h-16 items-center hover:bg-opacity-80 ${style.bg} ${style.border} ${style.text}`
                   }`}
               >
                 {isActive ? (
                   <>
-                    <span className="text-[9px] font-black opacity-80 uppercase tracking-widest mb-1">Class</span>
-                    <span className="text-sm font-black uppercase tracking-wide truncate w-full text-left">{group.name}</span>
-                    <Icon size={80} className="absolute -right-4 -bottom-4 opacity-10 rotate-12" />
+                    <span className="text-[9px] font-black opacity-80 uppercase tracking-widest mb-0.5">Class</span>
+                    <span className="text-xs sm:text-sm font-black uppercase tracking-wide truncate w-full text-left">{group.name}</span>
+                    <Icon size={70} className="absolute -right-3 -bottom-3 opacity-10 rotate-12" />
                   </>
                 ) : (
-                  <Icon size={24} />
+                  <Icon size={22} />
                 )}
               </button>
             );
@@ -532,46 +534,61 @@ const Assignments = () => {
                 .map(l => {
                   const progress = getLessonProgress(l.id);
                   return (
-                    <div key={l.id} className="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-all animate-in fade-in">
-                      <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                        <button onClick={() => openGradingModal(l)} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-md shadow-indigo-200 text-[10px] font-black uppercase tracking-widest active:scale-95 transition-transform">
-                          <Star size={12} /> Grade
-                        </button>
-                        <button onClick={() => openEditModal(l)} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all border border-slate-100">
-                          <Edit2 size={14} />
-                        </button>
-                        <button onClick={() => handleDeleteLesson(l)} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-red-500 hover:bg-red-50 transition-all border border-slate-100">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-
-                      <div className="flex items-start gap-4">
-                        <div className="flex flex-col items-center justify-center bg-indigo-50 rounded-2xl p-2 min-w-[4rem] h-16 border border-indigo-100 shrink-0">
+                    <div key={l.id} className="bg-white rounded-[1.25rem] sm:rounded-[1.5rem] border border-slate-100 shadow-sm hover:border-indigo-200 transition-all animate-in fade-in overflow-hidden">
+                      {/* Card Top: Date + Topic + Actions */}
+                      <div className="flex items-center gap-3 p-4 pb-3">
+                        {/* Date badge */}
+                        <div className="flex flex-col items-center justify-center bg-indigo-50 rounded-xl p-2 min-w-[3.5rem] h-14 border border-indigo-100 shrink-0">
                           <span className="text-[9px] font-black text-indigo-400 uppercase">{l.date.split('-')[1]}</span>
-                          <span className="text-2xl font-black text-indigo-600 leading-none">{l.date.split('-')[2]}</span>
+                          <span className="text-xl font-black text-indigo-600 leading-none">{l.date.split('-')[2]}</span>
                         </div>
 
-                        <div className="flex-1 min-w-0 pt-1">
-                          <h4 className="font-bold text-slate-800 text-sm uppercase leading-tight pr-24 truncate">{l.topic}</h4>
+                        {/* Title + badge */}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-slate-800 text-sm uppercase leading-tight truncate">{l.topic}</h4>
                           {l.isDelayed && (
-                            <span className="inline-block text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded mt-1">Qoldirildi</span>
+                            <span className="inline-block text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-md mt-1">Qoldirildi</span>
                           )}
-
-                          <div className="mt-2.5 flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
                               <div className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }}></div>
                             </div>
-                            <span className="text-[9px] font-bold text-slate-400">{progress}% Graded</span>
-                          </div>
-
-                          <div className="flex flex-wrap gap-1.5 mt-3">
-                            {l.tasks?.map((t, i) => (
-                              <div key={i} className="flex items-center bg-slate-50 border border-slate-200 px-2 py-1 rounded-md text-[9px] text-slate-600 uppercase font-black tracking-wide max-w-full">
-                                <span className="truncate">{typeof t === 'object' ? t.text : t}</span>
-                              </div>
-                            ))}
+                            <span className="text-[9px] font-bold text-slate-400 shrink-0">{progress}%</span>
                           </div>
                         </div>
+                      </div>
+
+                      {/* Tasks tags */}
+                      {l.tasks?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 px-4 pb-3">
+                          {l.tasks.map((t, i) => (
+                            <div key={i} className="flex items-center bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[9px] text-slate-600 uppercase font-black tracking-wide">
+                              <span className="truncate max-w-[120px]">{typeof t === 'object' ? t.text : t}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Action buttons — always visible on mobile */}
+                      <div className="flex items-center gap-2 px-4 py-3 bg-slate-50/70 border-t border-slate-100">
+                        <button
+                          onClick={() => openGradingModal(l)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 shadow-sm shadow-indigo-200 active:scale-95 transition-transform"
+                        >
+                          <Star size={11} /> Baho
+                        </button>
+                        <button
+                          onClick={() => openEditModal(l)}
+                          className="p-2.5 bg-white text-slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all border border-slate-200 active:scale-95"
+                        >
+                          <Edit2 size={15} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLesson(l)}
+                          className="p-2.5 bg-white text-slate-400 rounded-xl hover:text-red-500 hover:bg-red-50 transition-all border border-slate-200 active:scale-95"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </div>
                   );
@@ -579,35 +596,37 @@ const Assignments = () => {
 
               {/* --- PAGINATION CONTROLS --- */}
               {Math.ceil(lessons.length / LESSONS_PER_PAGE) > 1 && (
-                <div className="flex items-center justify-center gap-2 pt-2 pb-1">
+                <div className="flex items-center justify-between gap-2 pt-2 pb-1">
                   {/* Prev */}
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                    className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
                   >
                     ← Oldingi
                   </button>
 
                   {/* Page numbers */}
-                  {Array.from({ length: Math.ceil(lessons.length / LESSONS_PER_PAGE) }, (_, i) => i + 1).map(page => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`w-9 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 shadow-sm ${page === currentPage
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                    {Array.from({ length: Math.ceil(lessons.length / LESSONS_PER_PAGE) }, (_, i) => i + 1).map(page => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`w-9 h-9 shrink-0 rounded-xl text-[11px] font-black transition-all active:scale-95 shadow-sm ${page === currentPage
                           ? 'bg-indigo-600 text-white shadow-indigo-200'
                           : 'bg-white border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
-                        }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
 
                   {/* Next */}
                   <button
                     onClick={() => setCurrentPage(p => Math.min(Math.ceil(lessons.length / LESSONS_PER_PAGE), p + 1))}
                     disabled={currentPage === Math.ceil(lessons.length / LESSONS_PER_PAGE)}
-                    className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                    className="flex-1 py-2.5 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
                   >
                     Keyingi →
                   </button>
@@ -722,49 +741,52 @@ const Assignments = () => {
 
       {/* --- GRADING MODAL --- */}
       {gradingLesson && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-0 sm:p-6">
+        <div className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setGradingLesson(null)}></div>
-          <div className="bg-white w-full max-w-5xl h-[90dvh] sm:h-[90vh] flex flex-col relative z-10 shadow-2xl overflow-hidden border border-white sm:rounded-[2rem] rounded-t-[2rem] mt-auto sm:mt-0 animate-in slide-in-from-bottom duration-300">
+          <div className="bg-white w-full max-w-5xl h-[92dvh] sm:h-[90vh] flex flex-col relative z-10 shadow-2xl overflow-hidden sm:rounded-[2rem] rounded-t-[2rem] animate-in slide-in-from-bottom duration-300">
 
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50/50 gap-4 shrink-0">
-              <div>
-                <h3 className="text-lg font-black text-slate-800 uppercase italic">Gradebook</h3>
-                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">{gradingLesson.topic}</p>
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 gap-3 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-lg font-black text-slate-800 uppercase italic leading-none">Gradebook</h3>
+                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mt-0.5 truncate">{gradingLesson.topic}</p>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                  <input
-                    type="text"
-                    placeholder="Search student..."
-                    className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                    value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
-                  />
-                </div>
-                <button onClick={() => setGradingLesson(null)} className="p-2 bg-white border border-slate-200 rounded-full hover:bg-red-50 hover:text-red-500 transition-colors"><X size={18} /></button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Saving status compact */}
+                {savingStatus === 'saving' && <span className="text-[10px] font-black text-orange-500 flex items-center gap-1 hidden sm:flex"><Loader2 size={10} className="animate-spin" /> Saving...</span>}
+                {savingStatus === 'saved' && <span className="text-[10px] font-black text-emerald-500 flex items-center gap-1 hidden sm:flex"><CheckCircle2 size={10} /> Saved</span>}
+                <button onClick={() => setGradingLesson(null)} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-red-50 hover:text-red-500 transition-colors active:scale-95"><X size={16} /></button>
               </div>
             </div>
 
-            {/* Status Bar */}
-            <div className="px-6 py-1 bg-white border-b border-slate-50 flex justify-end shrink-0">
-              {savingStatus === 'saving' && <span className="text-[10px] font-black text-orange-500 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Autosaving...</span>}
-              {savingStatus === 'saved' && <span className="text-[10px] font-black text-emerald-500 flex items-center gap-1"><CheckCircle2 size={10} /> Saved</span>}
+            {/* Search + status bar */}
+            <div className="px-4 sm:px-6 py-2 bg-white border-b border-slate-100 flex items-center gap-3 shrink-0">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                <input
+                  type="text"
+                  placeholder="O'quvchi qidirish..."
+                  className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                />
+              </div>
+              {savingStatus === 'saving' && <span className="text-[10px] font-black text-orange-500 flex items-center gap-1 sm:hidden"><Loader2 size={10} className="animate-spin" /></span>}
+              {savingStatus === 'saved' && <span className="text-[10px] font-black text-emerald-500 sm:hidden"><CheckCircle2 size={14} /></span>}
             </div>
 
-            <div className="flex-1 overflow-auto custom-scrollbar p-0 bg-white">
+            <div className="flex-1 overflow-auto custom-scrollbar bg-white">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-white sticky top-0 z-20 shadow-sm">
                   <tr>
-                    <th className="p-4 w-48 min-w-[150px] text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 border-b border-slate-200">Student Name</th>
+                    <th className="p-3 sm:p-4 min-w-[120px] sm:min-w-[150px] text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 border-b border-slate-200 sticky left-0 z-30">O'quvchi</th>
                     {gradingLesson.tasks?.map((task, idx) => (
-                      <th key={idx} className="p-3 text-center min-w-[100px] text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50/30 border-b border-indigo-100 border-l border-slate-100">{typeof task === 'object' ? task.text : task}</th>
+                      <th key={idx} className="p-2 sm:p-3 text-center min-w-[80px] sm:min-w-[100px] text-[9px] sm:text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50/30 border-b border-indigo-100 border-l border-slate-100">{typeof task === 'object' ? task.text : task}</th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+                <tbody className="divide-y divide-slate-50">
                   {filteredStudents.length === 0 ? (
                     <tr><td colSpan={10} className="p-12 text-center text-slate-400 text-xs italic">O'quvchilar topilmadi</td></tr>
                   ) : (
@@ -772,10 +794,10 @@ const Assignments = () => {
                       const nameParts = student.name.split(' ');
                       return (
                         <tr key={student.id} className="hover:bg-slate-50/50 transition-colors group">
-                          <td className="p-3 border-r border-slate-50 bg-white sticky left-0 z-10 group-hover:bg-slate-50/50">
+                          <td className="p-2.5 sm:p-3 border-r border-slate-100 bg-white sticky left-0 z-10 group-hover:bg-slate-50/50">
                             <div className="flex flex-col leading-tight">
-                              <span className="font-bold text-slate-700 text-sm">{nameParts[0]}</span>
-                              <span className="text-xs text-slate-400 font-medium">{nameParts.slice(1).join(' ')}</span>
+                              <span className="font-bold text-slate-700 text-xs sm:text-sm">{nameParts[0]}</span>
+                              <span className="text-[10px] sm:text-xs text-slate-400 font-medium">{nameParts.slice(1).join(' ')}</span>
                             </div>
                           </td>
                           {gradingLesson.tasks?.map((task, idx) => {
@@ -784,13 +806,14 @@ const Assignments = () => {
                             const gradeData = lessonGrades[key] || { score: '' };
 
                             return (
-                              <td key={idx} className="p-2 border-l border-slate-50 text-center">
+                              <td key={idx} className="p-1.5 sm:p-2 border-l border-slate-50 text-center">
                                 <input
                                   type="number"
-                                  className={`w-14 h-10 text-center bg-slate-50 border border-slate-200 rounded-xl font-black text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-sm
-                                                            ${gradeData.score !== '' && gradeData.score < 60 ? 'bg-red-50 text-red-600 border-red-100' : ''}
-                                                            ${gradeData.score !== '' && gradeData.score >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : ''}
-`}
+                                  inputMode="numeric"
+                                  className={`w-12 sm:w-14 h-10 text-center bg-slate-50 border border-slate-200 rounded-xl font-black text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-sm
+                                    ${gradeData.score !== '' && gradeData.score < 60 ? 'bg-red-50 text-red-600 border-red-100' : ''}
+                                    ${gradeData.score !== '' && gradeData.score >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : ''}
+                                  `}
                                   placeholder="-"
                                   value={gradeData.score !== undefined ? gradeData.score : ''}
                                   onChange={(e) => handleGradeChange(student.id, taskId, e.target.value)}
