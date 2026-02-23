@@ -1,14 +1,23 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { collection, getDocs, query, where, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export const useTeacherGroups = () => {
     const queryClient = useQueryClient();
-    const currentUser = auth?.currentUser;
-    const uid = currentUser?.uid;
+    const [uid, setUid] = useState(() => auth?.currentUser?.uid || null);
+
+    // Auth holatini reaktiv kuzatamiz
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            setUid(user?.uid || null);
+        });
+        return () => unsubscribe();
+    }, []);
 
     const [unreadMessages, setUnreadMessages] = useState(0);
+
 
     // 1. GURUHLARNI YUKLASH (React Query / No LocalStorage)
     const { data: mainData = { teacherName: '', groups: [] }, isLoading: loadingGroups, isFetching: refreshingGroups, refetch: refetchGroups } = useQuery({

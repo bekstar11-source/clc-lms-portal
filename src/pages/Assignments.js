@@ -1,26 +1,29 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import {
   collection, query, where, getDocs, doc, updateDoc,
-  serverTimestamp, orderBy, addDoc, getDoc, deleteDoc
+  serverTimestamp, orderBy, addDoc, deleteDoc
 } from 'firebase/firestore';
 import {
   X, Trash2, Edit2, Plus, Star,
   Calendar as CalendarIcon, Users, Loader2, Trophy,
   Target, BookOpen, Sparkles, RefreshCw, Search, CheckCircle2
 } from 'lucide-react';
+import { useTeacherGroups } from '../hooks/useTeacherGroups';
 
 // --- HELPER: UUID FOR TASKS ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const Assignments = () => {
+  // --- useTeacherGroups hook - barcha guruhlarni yuklaydi ---
+  const { groups, loading: groupsLoading, handleForceRefresh } = useTeacherGroups();
+
   // --- STATE ---
   const [loading, setLoading] = useState(true);
   const [pageLoading, setPageLoading] = useState(true);
 
   // Cache Data
   const [cacheData, setCacheData] = useState({});
-  const [groups, setGroups] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(null);
 
   // Current Group Data
@@ -47,12 +50,22 @@ const Assignments = () => {
   const [isLessonDelayed, setIsLessonDelayed] = useState(false);
   const [addingLesson, setAddingLesson] = useState(false);
 
-  // 1. DATA LOADING
+  // Pagination
+  const LESSONS_PER_PAGE = 6;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // groups o'zgarganda birinchi guruhni tanlash
   useEffect(() => {
-    const loadAllData = async (forceRefresh = false) => {
+    if (groups.length > 0 && !selectedGroupId) {
+      setSelectedGroupId(groups[0].id);
+    }
+  }, [groups, selectedGroupId]);
+
+  // 1. DATA LOADING - faqat dars va baholar yuklanadi (guruhlar useTeacherGroups dan keladi)
+  useEffect(() => {
+    const loadGroupDetails = async (forceRefresh = false) => {
+      if (groups.length === 0) return;
       setPageLoading(true);
-      const user = auth.currentUser;
-      if (!user) return;
 
       // A) CHECK CACHE
       if (!forceRefresh) {
@@ -61,51 +74,23 @@ const Assignments = () => {
 
         if (cached && cachedTime && (new Date().getTime() - parseInt(cachedTime) < 5 * 60 * 1000)) {
           const parsedData = JSON.parse(cached);
-          setGroups(parsedData.groups);
-          setCacheData(parsedData.details);
-          setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-          if (parsedData.groups.length > 0 && !selectedGroupId) {
-            setSelectedGroupId(parsedData.groups[0].id);
+          // Cache da barcha guruhlar uchun ma'lumot bormi tekshiramiz
+          const allGroupsCached = groups.every(g => parsedData.details && parsedData.details[g.id]);
+          if (allGroupsCached) {
+            setCacheData(parsedData.details);
+            setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            setPageLoading(false);
+            setLoading(false);
+            return;
           }
-          setPageLoading(false);
-          setLoading(false);
-          return;
         }
       }
 
-      // B) FETCH FROM FIREBASE
+      // B) FETCH FROM FIREBASE - faqat dars va baholar
       try {
-        const userRef = doc(db, "students", user.uid);
-        const userSnap = await getDoc(userRef);
-        const role = userSnap.exists() ? userSnap.data().role : 'student';
-
-        let fetchedGroups = [];
-
-        if (role === 'admin') {
-          const qGroups = query(collection(db, "groups"));
-          const groupSnap = await getDocs(qGroups);
-          fetchedGroups = groupSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        } else {
-          const qMain = query(collection(db, "groups"), where("teacherId", "==", user.uid));
-          const qAssist = query(collection(db, "groups"), where("assistantTeacherId", "==", user.uid));
-
-          const [mainSnap, assistSnap] = await Promise.all([
-            getDocs(qMain), getDocs(qAssist)
-          ]);
-
-          const mainGroups = mainSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-          const assistGroups = assistSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-          const allRawGroups = [...mainGroups, ...assistGroups];
-          fetchedGroups = allRawGroups.filter((group, index, self) =>
-            index === self.findIndex((t) => t.id === group.id)
-          );
-        }
-
         const detailsMap = {};
 
-        const promises = fetchedGroups.map(async (grp) => {
+        const promises = groups.map(async (grp) => {
           const [studSnap, lessonSnap, gradeSnap] = await Promise.all([
             getDocs(query(collection(db, "students"), where("groupId", "==", grp.id))),
             getDocs(query(collection(db, "lessons"), where("groupId", "==", grp.id), orderBy("date", "desc"))),
@@ -131,16 +116,10 @@ const Assignments = () => {
         });
 
         await Promise.all(promises);
-
-        setGroups(fetchedGroups);
         setCacheData(detailsMap);
 
-        if (fetchedGroups.length > 0 && !selectedGroupId) {
-          setSelectedGroupId(fetchedGroups[0].id);
-        }
-
         const now = new Date();
-        localStorage.setItem('assignmentsCache', JSON.stringify({ groups: fetchedGroups, details: detailsMap }));
+        localStorage.setItem('assignmentsCache', JSON.stringify({ groups, details: detailsMap }));
         localStorage.setItem('assignmentsTime', now.getTime().toString());
         setLastUpdated(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
@@ -152,9 +131,9 @@ const Assignments = () => {
       }
     };
 
-    loadAllData();
+    loadGroupDetails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [groups]);
 
   // 2. SWITCH GROUP
   useEffect(() => {
@@ -163,6 +142,7 @@ const Assignments = () => {
       setStudents(data.students);
       setLessons(data.lessons);
       setAllGrades(data.grades);
+      setCurrentPage(1); // guruh o'zgarganda birinchi sahifaga qaytish
     }
   }, [selectedGroupId, cacheData]);
 
@@ -203,6 +183,8 @@ const Assignments = () => {
 
   const refreshData = () => {
     localStorage.removeItem('assignmentsCache');
+    localStorage.removeItem('assignmentsTime');
+    handleForceRefresh();
     window.location.reload();
   };
 
@@ -279,12 +261,29 @@ const Assignments = () => {
     }
   };
 
-  // ── DELETE LESSON ─────────────────────────────────────────────────────────
+  // ── DELETE LESSON + unga tegishli barcha baholar ─────────────────────────
   const handleDeleteLesson = async (lesson) => {
-    if (!window.confirm("Bu darsni o'chirib yubormoqchimisiz?")) return;
+    if (!window.confirm("Bu darsni o'chirib yubormoqchimisiz?\nBarcha baholar ham o'chiriladi!")) return;
     try {
-      await deleteDoc(doc(db, 'lessons', lesson.id));
+      // 1. Darsga tegishli barcha grade'larni topamiz (cache dan)
+      const lessonGradesDocs = allGrades.filter(g => g.lessonId === lesson.id);
+
+      // 2. Grade'larni Firebase dan batch o'chiramiz
+      const deleteGradePromises = lessonGradesDocs.map(g =>
+        deleteDoc(doc(db, 'grades', g.id))
+      );
+      await Promise.all([
+        deleteDoc(doc(db, 'lessons', lesson.id)),
+        ...deleteGradePromises
+      ]);
+
+      // 3. Local cache ni yangilaymiz
       updateCacheLocally('lesson_delete', lesson);
+
+      // 4. allGrades state dan ham o'chiramiz
+      const deletedIds = new Set(lessonGradesDocs.map(g => g.id));
+      setAllGrades(prev => prev.filter(g => !deletedIds.has(g.id)));
+
     } catch (e) {
       alert("Xatolik: " + e.message);
     }
@@ -385,7 +384,7 @@ const Assignments = () => {
     setNewTasks(tasksWithIds);
   };
 
-  // --- 🔥 BATCH UPDATE (SIMPLIFIED) ---
+  // --- 🔥 BATCH UPDATE (TOPIC + TASKS + GRADE taskType sync) ---
   const handleUpdate = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -397,6 +396,39 @@ const Assignments = () => {
         updatedAt: serverTimestamp()
       });
 
+      // Task nomi o'zgargan bo'lsa — tegishli grade'larning taskType ni ham yangilaymiz
+      const oldTasks = editingLesson.tasks || [];
+      const gradeUpdatePromises = [];
+
+      for (const newTask of newTasks) {
+        const oldTask = oldTasks.find(t => t.id === newTask.id);
+        if (oldTask && oldTask.text !== newTask.text) {
+          // Bu task nomi o'zgardi — tegishli grade'larni topib yangilaymiz
+          const changedGrades = allGrades.filter(
+            g => g.lessonId === editingLesson.id && g.taskType === oldTask.text
+          );
+          for (const grade of changedGrades) {
+            gradeUpdatePromises.push(
+              updateDoc(doc(db, "grades", grade.id), { taskType: newTask.text })
+            );
+          }
+        }
+      }
+
+      if (gradeUpdatePromises.length > 0) {
+        await Promise.all(gradeUpdatePromises);
+        // Cache'dagi grade'larni ham yangilaymiz
+        const updatedGrades = allGrades.map(g => {
+          if (g.lessonId !== editingLesson.id) return g;
+          const matchedNewTask = newTasks.find(nt => {
+            const oldTask = oldTasks.find(ot => ot.id === nt.id);
+            return oldTask && oldTask.text === g.taskType && oldTask.text !== nt.text;
+          });
+          return matchedNewTask ? { ...g, taskType: matchedNewTask.text } : g;
+        });
+        setAllGrades(updatedGrades);
+      }
+
       const updatedLesson = { ...editingLesson, topic: newTopic, tasks: newTasks };
       updateCacheLocally('lesson_update', updatedLesson);
 
@@ -407,7 +439,7 @@ const Assignments = () => {
 
   const filteredStudents = students.filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()));
 
-  if (pageLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]"><Loader2 className="animate-spin text-indigo-600" /></div>;
+  if (pageLoading || groupsLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]"><Loader2 className="animate-spin text-indigo-600" /></div>;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-32 font-sans touch-manipulation">
@@ -446,10 +478,10 @@ const Assignments = () => {
               <button
                 key={group.id}
                 onClick={() => setSelectedGroupId(group.id)}
-                className={`snap - center shrink - 0 rounded - 2xl border transition - all duration - 300 ease -in -out flex flex - col justify - center relative overflow - hidden ${isActive
+                className={`snap-center shrink-0 rounded-2xl border transition-all duration-300 ease-in-out flex flex-col justify-center relative overflow-hidden ${isActive
                   ? `w-48 h-20 px-5 items-start text-white shadow-lg ${style.active}`
                   : `w-16 h-16 items-center hover:bg-opacity-80 ${style.bg} ${style.border} ${style.text}`
-                  } `}
+                  }`}
               >
                 {isActive ? (
                   <>
@@ -471,7 +503,14 @@ const Assignments = () => {
         {/* 2. TASKS LIST */}
         <div className="lg:col-span-2 space-y-3">
           {selectedGroupId && (
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1 lg:hidden">All Tasks</h3>
+            <div className="flex items-center justify-between mb-3 px-1">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest lg:hidden">All Tasks</h3>
+              {lessons.length > 0 && (
+                <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg ml-auto">
+                  {Math.min(currentPage * LESSONS_PER_PAGE, lessons.length)} / {lessons.length} dars
+                </span>
+              )}
+            </div>
           )}
 
           {lessons.length === 0 ? (
@@ -487,53 +526,94 @@ const Assignments = () => {
               </button>
             </div>
           ) : (
-            lessons.map(l => {
-              const progress = getLessonProgress(l.id);
-              return (
-                <div key={l.id} className="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-all animate-in fade-in">
-                  <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <button onClick={() => openGradingModal(l)} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-md shadow-indigo-200 text-[10px] font-black uppercase tracking-widest active:scale-95 transition-transform">
-                      <Star size={12} /> Grade
-                    </button>
-                    <button onClick={() => openEditModal(l)} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all border border-slate-100">
-                      <Edit2 size={14} />
-                    </button>
-                    <button onClick={() => handleDeleteLesson(l)} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-red-500 hover:bg-red-50 transition-all border border-slate-100">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+            <>
+              {lessons
+                .slice((currentPage - 1) * LESSONS_PER_PAGE, currentPage * LESSONS_PER_PAGE)
+                .map(l => {
+                  const progress = getLessonProgress(l.id);
+                  return (
+                    <div key={l.id} className="bg-white p-5 rounded-[1.5rem] border border-slate-100 shadow-sm relative group hover:border-indigo-200 transition-all animate-in fade-in">
+                      <div className="absolute top-3 right-3 flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                        <button onClick={() => openGradingModal(l)} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-md shadow-indigo-200 text-[10px] font-black uppercase tracking-widest active:scale-95 transition-transform">
+                          <Star size={12} /> Grade
+                        </button>
+                        <button onClick={() => openEditModal(l)} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-indigo-600 hover:bg-indigo-50 transition-all border border-slate-100">
+                          <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => handleDeleteLesson(l)} className="p-2 bg-slate-50 text-slate-400 rounded-lg hover:text-red-500 hover:bg-red-50 transition-all border border-slate-100">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
 
-                  <div className="flex items-start gap-4">
-                    <div className="flex flex-col items-center justify-center bg-indigo-50 rounded-2xl p-2 min-w-[4rem] h-16 border border-indigo-100 shrink-0">
-                      <span className="text-[9px] font-black text-indigo-400 uppercase">{l.date.split('-')[1]}</span>
-                      <span className="text-2xl font-black text-indigo-600 leading-none">{l.date.split('-')[2]}</span>
-                    </div>
-
-                    <div className="flex-1 min-w-0 pt-1">
-                      <h4 className="font-bold text-slate-800 text-sm uppercase leading-tight pr-24 truncate">{l.topic}</h4>
-                      {l.isDelayed && (
-                        <span className="inline-block text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded mt-1">Qoldirildi</span>
-                      )}
-
-                      <div className="mt-2.5 flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h - full rounded - full transition - all duration - 1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'} `} style={{ width: `${progress}% ` }}></div>
+                      <div className="flex items-start gap-4">
+                        <div className="flex flex-col items-center justify-center bg-indigo-50 rounded-2xl p-2 min-w-[4rem] h-16 border border-indigo-100 shrink-0">
+                          <span className="text-[9px] font-black text-indigo-400 uppercase">{l.date.split('-')[1]}</span>
+                          <span className="text-2xl font-black text-indigo-600 leading-none">{l.date.split('-')[2]}</span>
                         </div>
-                        <span className="text-[9px] font-bold text-slate-400">{progress}% Graded</span>
-                      </div>
 
-                      <div className="flex flex-wrap gap-1.5 mt-3">
-                        {l.tasks?.map((t, i) => (
-                          <div key={i} className="flex items-center bg-slate-50 border border-slate-200 px-2 py-1 rounded-md text-[9px] text-slate-600 uppercase font-black tracking-wide max-w-full">
-                            <span className="truncate">{typeof t === 'object' ? t.text : t}</span>
+                        <div className="flex-1 min-w-0 pt-1">
+                          <h4 className="font-bold text-slate-800 text-sm uppercase leading-tight pr-24 truncate">{l.topic}</h4>
+                          {l.isDelayed && (
+                            <span className="inline-block text-[9px] font-black text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded mt-1">Qoldirildi</span>
+                          )}
+
+                          <div className="mt-2.5 flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all duration-1000 ${progress >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }}></div>
+                            </div>
+                            <span className="text-[9px] font-bold text-slate-400">{progress}% Graded</span>
                           </div>
-                        ))}
+
+                          <div className="flex flex-wrap gap-1.5 mt-3">
+                            {l.tasks?.map((t, i) => (
+                              <div key={i} className="flex items-center bg-slate-50 border border-slate-200 px-2 py-1 rounded-md text-[9px] text-slate-600 uppercase font-black tracking-wide max-w-full">
+                                <span className="truncate">{typeof t === 'object' ? t.text : t}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  );
+                })}
+
+              {/* --- PAGINATION CONTROLS --- */}
+              {Math.ceil(lessons.length / LESSONS_PER_PAGE) > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-2 pb-1">
+                  {/* Prev */}
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                  >
+                    ← Oldingi
+                  </button>
+
+                  {/* Page numbers */}
+                  {Array.from({ length: Math.ceil(lessons.length / LESSONS_PER_PAGE) }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-9 h-9 rounded-xl text-[11px] font-black transition-all active:scale-95 shadow-sm ${page === currentPage
+                          ? 'bg-indigo-600 text-white shadow-indigo-200'
+                          : 'bg-white border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200'
+                        }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+
+                  {/* Next */}
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(lessons.length / LESSONS_PER_PAGE), p + 1))}
+                    disabled={currentPage === Math.ceil(lessons.length / LESSONS_PER_PAGE)}
+                    className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-black text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                  >
+                    Keyingi →
+                  </button>
                 </div>
-              )
-            })
+              )}
+            </>
           )}
         </div>
 
@@ -549,7 +629,7 @@ const Assignments = () => {
                 topStudents.map((s, i) => (
                   <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50/50 rounded-xl border border-slate-100">
                     <div className="flex items-center gap-3">
-                      <div className={`w - 6 h - 6 rounded - full flex items - center justify - center text - [10px] font - black text - white shadow - sm ${i === 0 ? 'bg-amber-400' : i === 1 ? 'bg-slate-400' : 'bg-orange-400'} `}>{i + 1}</div>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm ${i === 0 ? 'bg-amber-400' : i === 1 ? 'bg-slate-400' : 'bg-orange-400'}`}>{i + 1}</div>
                       <span className="text-xs font-bold text-slate-700">{s.name}</span>
                     </div>
                     <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">{s.avg}%</span>
@@ -587,8 +667,8 @@ const Assignments = () => {
                 />
 
                 <div className="flex items-center gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div onClick={() => setIsLessonDelayed(!isLessonDelayed)} className={`w - 10 h - 6 rounded - full p - 1 transition - all cursor - pointer ${isLessonDelayed ? 'bg-orange-400' : 'bg-slate-300'} `}>
-                    <div className={`w - 4 h - 4 bg - white rounded - full shadow - sm transition - transform ${isLessonDelayed ? 'translate-x-4' : 'translate-x-0'} `}></div>
+                  <div onClick={() => setIsLessonDelayed(!isLessonDelayed)} className={`w-10 h-6 rounded-full p-1 transition-all cursor-pointer ${isLessonDelayed ? 'bg-orange-400' : 'bg-slate-300'}`}>
+                    <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${isLessonDelayed ? 'translate-x-4' : 'translate-x-0'}`}></div>
                   </div>
                   <span className="text-xs font-bold text-slate-500">Darsni keyinga qoldirish</span>
                 </div>
@@ -707,7 +787,7 @@ const Assignments = () => {
                               <td key={idx} className="p-2 border-l border-slate-50 text-center">
                                 <input
                                   type="number"
-                                  className={`w - 14 h - 10 text - center bg - slate - 50 border border - slate - 200 rounded - xl font - black text - slate - 700 outline - none focus: ring - 2 focus: ring - indigo - 500 focus: bg - white transition - all text - sm
+                                  className={`w-14 h-10 text-center bg-slate-50 border border-slate-200 rounded-xl font-black text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-sm
                                                             ${gradeData.score !== '' && gradeData.score < 60 ? 'bg-red-50 text-red-600 border-red-100' : ''}
                                                             ${gradeData.score !== '' && gradeData.score >= 80 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : ''}
 `}
