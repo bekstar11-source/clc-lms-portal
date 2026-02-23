@@ -300,6 +300,7 @@ export const useGroupActions = ({
                 const lessonId = key.substring(0, firstUnderscore);
                 const taskId = key.substring(firstUnderscore + 1);
 
+                // eslint-disable-next-line no-unused-vars
                 const scoreNum = Number(scoreVal);
                 const lesson = lessons.find(l => l.id === lessonId);
                 const topic = lesson ? lesson.topic : 'Vazifa';

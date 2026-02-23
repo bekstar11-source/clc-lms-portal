@@ -1,9 +1,9 @@
 import React from 'react';
-import { ArrowLeft, RefreshCw, Trash2, Users, BookOpen } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trash2 } from 'lucide-react';
 
 const GroupHeader = ({
     groupName, studentsCount, refreshing, onRefresh, onDeleteGroup, currentUserRole,
-    activeTab, setActiveTab, navigate, triggerHaptic
+    navigate, triggerHaptic
 }) => {
     return (
         <header className="fixed top-0 right-0 left-0 md:left-72 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-3 shadow-sm transition-all duration-300">
@@ -27,11 +27,6 @@ const GroupHeader = ({
                         <button onClick={onDeleteGroup} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors shrink-0"><Trash2 size={20} /></button>
                     )}
                 </div>
-            </div>
-
-            <div className="flex p-1 bg-slate-100 rounded-xl mt-4 md:w-fit">
-                <button onClick={() => { triggerHaptic(); setActiveTab('students'); }} className={`flex-1 md:flex-none md:px-8 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'students' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><Users size={14} /> O'quvchilar</button>
-                <button onClick={() => { triggerHaptic(); setActiveTab('journal'); }} className={`flex-1 md:flex-none md:px-8 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'journal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}><BookOpen size={14} /> Jurnal</button>
             </div>
         </header>
     );
