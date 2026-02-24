@@ -15,12 +15,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 // --- HELPER: UUID FOR TASKS ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-// --- FETCHER: faqat selectedGroupId uchun ---
+// --- FETCHER: students va barcha lessons (lekin grades emas!) ---
 const fetchGroupDetails = async (groupId) => {
-  const [studSnap, lessonSnap, gradeSnap] = await Promise.all([
+  const [studSnap, lessonSnap] = await Promise.all([
     getDocs(query(collection(db, 'students'), where('groupId', '==', groupId))),
     getDocs(query(collection(db, 'lessons'), where('groupId', '==', groupId), orderBy('date', 'desc'))),
-    getDocs(query(collection(db, 'grades'), where('groupId', '==', groupId))),
   ]);
 
   const normalizedLessons = lessonSnap.docs.map(d => {
@@ -38,8 +37,15 @@ const fetchGroupDetails = async (groupId) => {
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     lessons: normalizedLessons,
-    grades: gradeSnap.docs.map(d => ({ ...d.data(), id: d.id, score: Number(d.data().score) || 0 })),
   };
+};
+
+// --- FETCHER: faqat ko'rinib turgan 6 ta darsning baholarini yuklash ---
+const fetchGradesForLessons = async (lessonIds) => {
+  if (!lessonIds || lessonIds.length === 0) return [];
+  // Firestore IN clause supports max 30 items. (Bizning sahifada 6 ta).
+  const gradeSnap = await getDocs(query(collection(db, 'grades'), where('lessonId', 'in', lessonIds)));
+  return gradeSnap.docs.map(d => ({ ...d.data(), id: d.id, score: Number(d.data().score) || 0 }));
 };
 
 const Assignments = () => {
@@ -100,10 +106,10 @@ const Assignments = () => {
     setCurrentPage(1);
   }, [selectedGroupId]);
 
-  // --- REACT QUERY: faqat selectedGroupId uchun fetch ---
+  // --- REACT QUERY: Asosiy baza (O'quvchilar va Darslar) ---
   const {
     data: groupData,
-    isLoading: pageLoading,
+    isLoading: groupLoading,
     dataUpdatedAt,
   } = useQuery({
     queryKey: ['groupDetails', selectedGroupId],
@@ -114,30 +120,47 @@ const Assignments = () => {
 
   const students = useMemo(() => groupData?.students ?? [], [groupData]);
   const lessons = useMemo(() => groupData?.lessons ?? [], [groupData]);
-  const allGrades = useMemo(() => groupData?.grades ?? [], [groupData]);
 
+  // Hozirgi sahifada ko'rsatiladigan 6 ta darsning ID'lari
+  const visibleLessonIds = useMemo(() => {
+    return lessons
+      .slice((currentPage - 1) * LESSONS_PER_PAGE, currentPage * LESSONS_PER_PAGE)
+      .map(l => l.id);
+  }, [lessons, currentPage]);
+
+  // --- REACT QUERY: Faqat ko'rinib turgan sahifadagi darslar baholari ---
+  const {
+    data: pageGradesArray,
+    isLoading: gradesLoading
+  } = useQuery({
+    queryKey: ['pageGrades', selectedGroupId, visibleLessonIds],
+    queryFn: () => fetchGradesForLessons(visibleLessonIds),
+    enabled: !!selectedGroupId && visibleLessonIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const pageGrades = useMemo(() => pageGradesArray ?? [], [pageGradesArray]);
+
+  const pageLoading = groupLoading || (gradesLoading && visibleLessonIds.length > 0);
 
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null;
 
-  // --- STATISTICS ---
+  // --- STATISTICS: Backend dagi averageScore dan olinadi (barcha grade'larni yuklamaslik uchun) ---
   const topStudents = useMemo(() => {
-    if (students.length === 0 || allGrades.length === 0) return [];
-    const stats = students.map(student => {
-      const studentGrades = allGrades.filter(g => g.studentId === student.id);
-      if (studentGrades.length === 0) return { ...student, avg: 0 };
-      const total = studentGrades.reduce((sum, g) => sum + (g.score > 100 ? 100 : Number(g.score)), 0);
-      return { ...student, avg: Math.round(total / studentGrades.length) };
-    });
-    return stats.sort((a, b) => b.avg - a.avg).slice(0, 3);
-  }, [students, allGrades]);
+    if (students.length === 0) return [];
+    return [...students]
+      .sort((a, b) => (b.averageScore || 0) - (a.averageScore || 0))
+      .slice(0, 3)
+      .map(s => ({ ...s, avg: s.averageScore || 0 }));
+  }, [students]);
 
   const getLessonProgress = (lessonId) => {
     if (students.length === 0) return 0;
     const lesson = lessons.find(l => l.id === lessonId);
     if (!lesson || !lesson.tasks) return 0;
-    const lessonGradesArr = allGrades.filter(g => g.lessonId === lessonId);
+    const lessonGradesArr = pageGrades.filter(g => g.lessonId === lessonId);
     const totalPossibleGrades = students.length * lesson.tasks.length;
     if (totalPossibleGrades === 0) return 0;
     return Math.round((lessonGradesArr.length / totalPossibleGrades) * 100);
@@ -161,29 +184,41 @@ const Assignments = () => {
     }
   };
 
-  // --- QUERY CACHE UPDATE (localStorage o'rniga) ---
+  // --- QUERY CACHE UPDATE (Faqat Grade state ini yangilash) ---
   const updateQueryCache = (type, item) => {
     if (!selectedGroupId || !groupData) return;
 
-    queryClient.setQueryData(['groupDetails', selectedGroupId], (old) => {
-      if (!old) return old;
-      let newData = { ...old };
+    if (type.includes('grade')) {
+      // Grade'larni pagination keshiga yozamiz
+      queryClient.setQueryData(['pageGrades', selectedGroupId, visibleLessonIds], (old) => {
+        if (!old) return old;
+        if (type === 'grade_update') return old.map(g => g.id === item.id ? { ...g, score: item.score } : g);
+        if (type === 'grade_add') return [...old, item];
+        return old;
+      });
+    } else {
+      // Dars va O'quvchilarni groupDetails keshiga yozamiz
+      queryClient.setQueryData(['groupDetails', selectedGroupId], (old) => {
+        if (!old) return old;
+        let newData = { ...old };
+        if (type === 'lesson_update') {
+          newData.lessons = newData.lessons.map(l => l.id === item.id ? item : l);
+        } else if (type === 'lesson_add') {
+          newData.lessons = [item, ...newData.lessons];
+        } else if (type === 'lesson_delete') {
+          newData.lessons = newData.lessons.filter(l => l.id !== item.id);
+        }
+        return newData;
+      });
 
-      if (type === 'grade_update') {
-        newData.grades = newData.grades.map(g => g.id === item.id ? { ...g, score: item.score } : g);
-      } else if (type === 'grade_add') {
-        newData.grades = [...newData.grades, item];
-      } else if (type === 'lesson_update') {
-        newData.lessons = newData.lessons.map(l => l.id === item.id ? item : l);
-      } else if (type === 'lesson_add') {
-        newData.lessons = [item, ...newData.lessons];
-      } else if (type === 'lesson_delete') {
-        newData.lessons = newData.lessons.filter(l => l.id !== item.id);
-        newData.grades = newData.grades.filter(g => g.lessonId !== item.id);
+      // Agar dars o'chirilgan bo'lsa, pageGrades keshidan ham ochirib tashlaymiz
+      if (type === 'lesson_delete') {
+        queryClient.setQueryData(['pageGrades', selectedGroupId, visibleLessonIds], (old) => {
+          if (!old) return old;
+          return old.filter(g => g.lessonId !== item.id);
+        });
       }
-
-      return newData;
-    });
+    }
   };
 
   // ── ADD LESSON HANDLER ────────────────────────────────────────────────────
@@ -234,7 +269,7 @@ const Assignments = () => {
   const handleDeleteLesson = async (lesson) => {
     if (!window.confirm("Bu darsni o'chirib yubormoqchimisiz?\nBarcha baholar ham o'chiriladi!")) return;
     try {
-      const lessonGradesDocs = allGrades.filter(g => g.lessonId === lesson.id);
+      const lessonGradesDocs = pageGrades.filter(g => g.lessonId === lesson.id);
       const deleteGradePromises = lessonGradesDocs.map(g => deleteDoc(doc(db, 'grades', g.id)));
       await Promise.all([
         deleteDoc(doc(db, 'lessons', lesson.id)),
@@ -253,7 +288,7 @@ const Assignments = () => {
     setStudentSearch('');
     setLessonGrades({});
 
-    const gradesForLesson = allGrades.filter(g => g.lessonId === lesson.id);
+    const gradesForLesson = pageGrades.filter(g => g.lessonId === lesson.id);
     const loadedGrades = {};
 
     gradesForLesson.forEach(g => {
@@ -359,7 +394,7 @@ const Assignments = () => {
       for (const newTask of newTasks) {
         const oldTask = oldTasks.find(t => t.id === newTask.id);
         if (oldTask && oldTask.text !== newTask.text) {
-          const changedGrades = allGrades.filter(
+          const changedGrades = pageGrades.filter(
             g => g.lessonId === editingLesson.id && g.taskType === oldTask.text
           );
           for (const grade of changedGrades) {
@@ -372,10 +407,10 @@ const Assignments = () => {
 
       if (gradeUpdatePromises.length > 0) {
         await Promise.all(gradeUpdatePromises);
-        // Grades cache ni ham yangilaymiz
-        queryClient.setQueryData(['groupDetails', selectedGroupId], (old) => {
+        // Page grades cache ni ham yangilaymiz
+        queryClient.setQueryData(['pageGrades', selectedGroupId, visibleLessonIds], (old) => {
           if (!old) return old;
-          const updatedGrades = old.grades.map(g => {
+          return old.map(g => {
             if (g.lessonId !== editingLesson.id) return g;
             const matchedNewTask = newTasks.find(nt => {
               const ot = oldTasks.find(o => o.id === nt.id);
@@ -383,7 +418,6 @@ const Assignments = () => {
             });
             return matchedNewTask ? { ...g, taskType: matchedNewTask.text } : g;
           });
-          return { ...old, grades: updatedGrades };
         });
       }
 
