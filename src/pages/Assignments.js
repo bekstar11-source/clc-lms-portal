@@ -328,13 +328,25 @@ const Assignments = () => {
     setSavingStatus('saving');
     const safeScore = value === '' ? 0 : Number(value);
 
+    let gradeData = {
+      score: safeScore,
+      date: serverTimestamp(),
+      taskId: taskId,
+      status: 'active',
+      retakeDeadline: null,
+    };
+
+    if (safeScore < 60) {
+      const deadline = new Date();
+      deadline.setDate(deadline.getDate() + 7);
+      gradeData.status = 'retake_needed';
+      gradeData.retakeDeadline = deadline;
+    }
+
     try {
       if (currentEntry?.docId) {
-        await updateDoc(doc(db, 'grades', currentEntry.docId), {
-          score: safeScore,
-          date: serverTimestamp(),
-          taskId: taskId,
-        });
+        // Bahoni yangilaganda statusini ham yangilaymiz
+        await updateDoc(doc(db, 'grades', currentEntry.docId), gradeData);
         updateQueryCache('grade_update', { id: currentEntry.docId, score: safeScore });
       } else {
         const newDoc = await addDoc(collection(db, 'grades'), {
@@ -342,11 +354,9 @@ const Assignments = () => {
           studentName,
           groupId: selectedGroupId,
           lessonId: gradingLesson.id,
-          taskId: taskId,
           taskType: taskName,
           comment: gradingLesson.topic,
-          score: safeScore,
-          date: serverTimestamp(),
+          ...gradeData,
         });
 
         setLessonGrades(prev => ({ ...prev, [key]: { score: safeScore, docId: newDoc.id } }));
