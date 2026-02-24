@@ -10,27 +10,46 @@ import {
   Target, BookOpen, Sparkles, RefreshCw, Search, CheckCircle2
 } from 'lucide-react';
 import { useTeacherGroups } from '../hooks/useTeacherGroups';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 // --- HELPER: UUID FOR TASKS ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// --- FETCHER: faqat selectedGroupId uchun ---
+const fetchGroupDetails = async (groupId) => {
+  const [studSnap, lessonSnap, gradeSnap] = await Promise.all([
+    getDocs(query(collection(db, 'students'), where('groupId', '==', groupId))),
+    getDocs(query(collection(db, 'lessons'), where('groupId', '==', groupId), orderBy('date', 'desc'))),
+    getDocs(query(collection(db, 'grades'), where('groupId', '==', groupId))),
+  ]);
+
+  const normalizedLessons = lessonSnap.docs.map(d => {
+    const data = d.data();
+    const tasks = (data.tasks || []).map(t => {
+      if (typeof t === 'string') return { id: generateId(), text: t, completed: false };
+      if (!t.id) return { ...t, id: generateId() };
+      return t;
+    });
+    return { id: d.id, ...data, tasks };
+  });
+
+  return {
+    students: studSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    lessons: normalizedLessons,
+    grades: gradeSnap.docs.map(d => ({ ...d.data(), id: d.id, score: Number(d.data().score) || 0 })),
+  };
+};
+
 const Assignments = () => {
+  const queryClient = useQueryClient();
+
   // --- useTeacherGroups hook - barcha guruhlarni yuklaydi ---
   const { groups, loading: groupsLoading, handleForceRefresh } = useTeacherGroups();
 
   // --- STATE ---
-  const [loading, setLoading] = useState(true);
-  const [pageLoading, setPageLoading] = useState(true);
-
-  // Cache Data
-  const [cacheData, setCacheData] = useState({});
-  const [lastUpdated, setLastUpdated] = useState(null);
-
-  // Current Group Data
   const [selectedGroupId, setSelectedGroupId] = useState(null);
-  const [students, setStudents] = useState([]);
-  const [lessons, setLessons] = useState([]);
-  const [allGrades, setAllGrades] = useState([]);
 
   // Modals & UI State
   const [editingLesson, setEditingLesson] = useState(null);
@@ -49,6 +68,7 @@ const Assignments = () => {
   const [lessonTasks, setLessonTasks] = useState([{ id: generateId(), text: 'Uyga vazifa', completed: false }]);
   const [isLessonDelayed, setIsLessonDelayed] = useState(false);
   const [addingLesson, setAddingLesson] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Pagination
   const LESSONS_PER_PAGE = 6;
@@ -61,90 +81,30 @@ const Assignments = () => {
     }
   }, [groups, selectedGroupId]);
 
-  // 1. DATA LOADING - faqat dars va baholar yuklanadi (guruhlar useTeacherGroups dan keladi)
+  // Guruh o'zgarganda pagination reset
   useEffect(() => {
-    const loadGroupDetails = async (forceRefresh = false) => {
-      if (groups.length === 0) return;
-      setPageLoading(true);
+    setCurrentPage(1);
+  }, [selectedGroupId]);
 
-      // A) CHECK CACHE
-      if (!forceRefresh) {
-        const cached = localStorage.getItem('assignmentsCache');
-        const cachedTime = localStorage.getItem('assignmentsTime');
+  // --- REACT QUERY: faqat selectedGroupId uchun fetch ---
+  const {
+    data: groupData,
+    isLoading: pageLoading,
+    dataUpdatedAt,
+  } = useQuery({
+    queryKey: ['groupDetails', selectedGroupId],
+    queryFn: () => fetchGroupDetails(selectedGroupId),
+    enabled: !!selectedGroupId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-        if (cached && cachedTime && (new Date().getTime() - parseInt(cachedTime) < 5 * 60 * 1000)) {
-          const parsedData = JSON.parse(cached);
-          // Cache da barcha guruhlar uchun ma'lumot bormi tekshiramiz
-          const allGroupsCached = groups.every(g => parsedData.details && parsedData.details[g.id]);
-          if (allGroupsCached) {
-            setCacheData(parsedData.details);
-            setLastUpdated(new Date(parseInt(cachedTime)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-            setPageLoading(false);
-            setLoading(false);
-            return;
-          }
-        }
-      }
+  const students = groupData?.students ?? [];
+  const lessons = groupData?.lessons ?? [];
+  const allGrades = groupData?.grades ?? [];
 
-      // B) FETCH FROM FIREBASE - faqat dars va baholar
-      try {
-        const detailsMap = {};
-
-        const promises = groups.map(async (grp) => {
-          const [studSnap, lessonSnap, gradeSnap] = await Promise.all([
-            getDocs(query(collection(db, "students"), where("groupId", "==", grp.id))),
-            getDocs(query(collection(db, "lessons"), where("groupId", "==", grp.id), orderBy("date", "desc"))),
-            getDocs(query(collection(db, "grades"), where("groupId", "==", grp.id)))
-          ]);
-
-          // DATA NORMALIZATION
-          const normalizedLessons = lessonSnap.docs.map(d => {
-            const data = d.data();
-            const tasks = (data.tasks || []).map(t => {
-              if (typeof t === 'string') return { id: generateId(), text: t, completed: false };
-              if (!t.id) return { ...t, id: generateId() };
-              return t;
-            });
-            return { id: d.id, ...data, tasks };
-          });
-
-          detailsMap[grp.id] = {
-            students: studSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name)),
-            lessons: normalizedLessons,
-            grades: gradeSnap.docs.map(d => ({ ...d.data(), id: d.id, score: Number(d.data().score) || 0 }))
-          };
-        });
-
-        await Promise.all(promises);
-        setCacheData(detailsMap);
-
-        const now = new Date();
-        localStorage.setItem('assignmentsCache', JSON.stringify({ groups, details: detailsMap }));
-        localStorage.setItem('assignmentsTime', now.getTime().toString());
-        setLastUpdated(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-
-      } catch (e) {
-        console.error("Load Error:", e);
-      } finally {
-        setPageLoading(false);
-        setLoading(false);
-      }
-    };
-
-    loadGroupDetails();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups]);
-
-  // 2. SWITCH GROUP
-  useEffect(() => {
-    if (selectedGroupId && cacheData[selectedGroupId]) {
-      const data = cacheData[selectedGroupId];
-      setStudents(data.students);
-      setLessons(data.lessons);
-      setAllGrades(data.grades);
-      setCurrentPage(1); // guruh o'zgarganda birinchi sahifaga qaytish
-    }
-  }, [selectedGroupId, cacheData]);
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
 
   // --- STATISTICS ---
   const topStudents = useMemo(() => {
@@ -162,11 +122,9 @@ const Assignments = () => {
     if (students.length === 0) return 0;
     const lesson = lessons.find(l => l.id === lessonId);
     if (!lesson || !lesson.tasks) return 0;
-
     const lessonGradesArr = allGrades.filter(g => g.lessonId === lessonId);
     const totalPossibleGrades = students.length * lesson.tasks.length;
     if (totalPossibleGrades === 0) return 0;
-
     return Math.round((lessonGradesArr.length / totalPossibleGrades) * 100);
   };
 
@@ -182,39 +140,35 @@ const Assignments = () => {
   };
 
   const refreshData = () => {
-    localStorage.removeItem('assignmentsCache');
-    localStorage.removeItem('assignmentsTime');
     handleForceRefresh();
-    window.location.reload();
+    if (selectedGroupId) {
+      queryClient.invalidateQueries({ queryKey: ['groupDetails', selectedGroupId] });
+    }
   };
 
-  // --- LOCAL CACHE UPDATE ---
-  const updateCacheLocally = (type, item) => {
-    const currentGroupData = cacheData[selectedGroupId];
-    if (!currentGroupData) return;
+  // --- QUERY CACHE UPDATE (localStorage o'rniga) ---
+  const updateQueryCache = (type, item) => {
+    if (!selectedGroupId || !groupData) return;
 
-    let newData = { ...currentGroupData };
+    queryClient.setQueryData(['groupDetails', selectedGroupId], (old) => {
+      if (!old) return old;
+      let newData = { ...old };
 
-    if (type === 'grade_update') {
-      newData.grades = newData.grades.map(g =>
-        (g.id === item.id) ? { ...g, score: item.score } : g
-      );
-    } else if (type === 'grade_add') {
-      newData.grades = [...newData.grades, item];
-    } else if (type === 'lesson_update') {
-      newData.lessons = newData.lessons.map(l => l.id === item.id ? item : l);
-    } else if (type === 'lesson_add') {
-      newData.lessons = [item, ...newData.lessons];
-    } else if (type === 'lesson_delete') {
-      newData.lessons = newData.lessons.filter(l => l.id !== item.id);
-    }
+      if (type === 'grade_update') {
+        newData.grades = newData.grades.map(g => g.id === item.id ? { ...g, score: item.score } : g);
+      } else if (type === 'grade_add') {
+        newData.grades = [...newData.grades, item];
+      } else if (type === 'lesson_update') {
+        newData.lessons = newData.lessons.map(l => l.id === item.id ? item : l);
+      } else if (type === 'lesson_add') {
+        newData.lessons = [item, ...newData.lessons];
+      } else if (type === 'lesson_delete') {
+        newData.lessons = newData.lessons.filter(l => l.id !== item.id);
+        newData.grades = newData.grades.filter(g => g.lessonId !== item.id);
+      }
 
-    const newCache = { ...cacheData, [selectedGroupId]: newData };
-    setCacheData(newCache);
-    if (type.includes('grade')) setAllGrades(newData.grades);
-    if (type.includes('lesson')) setLessons(newData.lessons);
-
-    localStorage.setItem('assignmentsCache', JSON.stringify({ groups, details: newCache }));
+      return newData;
+    });
   };
 
   // ── ADD LESSON HANDLER ────────────────────────────────────────────────────
@@ -228,7 +182,7 @@ const Assignments = () => {
 
   const handleAddLesson = async (e) => {
     if (e) e.preventDefault();
-    if (!lessonTopic.trim() || !lessonDate) return alert("Mavzu va sana kiritilishi shart!");
+    if (!lessonTopic.trim() || !lessonDate) return alert('Mavzu va sana kiritilishi shart!');
     if (!selectedGroupId) return;
 
     const cleanTasks = lessonTasks.filter(t => t.text.trim() !== '');
@@ -252,10 +206,10 @@ const Assignments = () => {
         isDelayed: isLessonDelayed,
       };
 
-      updateCacheLocally('lesson_add', newLesson);
+      updateQueryCache('lesson_add', newLesson);
       setIsAddLessonOpen(false);
     } catch (e) {
-      alert("Xatolik: " + e.message);
+      alert('Xatolik: ' + e.message);
     } finally {
       setAddingLesson(false);
     }
@@ -265,31 +219,20 @@ const Assignments = () => {
   const handleDeleteLesson = async (lesson) => {
     if (!window.confirm("Bu darsni o'chirib yubormoqchimisiz?\nBarcha baholar ham o'chiriladi!")) return;
     try {
-      // 1. Darsga tegishli barcha grade'larni topamiz (cache dan)
       const lessonGradesDocs = allGrades.filter(g => g.lessonId === lesson.id);
-
-      // 2. Grade'larni Firebase dan batch o'chiramiz
-      const deleteGradePromises = lessonGradesDocs.map(g =>
-        deleteDoc(doc(db, 'grades', g.id))
-      );
+      const deleteGradePromises = lessonGradesDocs.map(g => deleteDoc(doc(db, 'grades', g.id)));
       await Promise.all([
         deleteDoc(doc(db, 'lessons', lesson.id)),
-        ...deleteGradePromises
+        ...deleteGradePromises,
       ]);
 
-      // 3. Local cache ni yangilaymiz
-      updateCacheLocally('lesson_delete', lesson);
-
-      // 4. allGrades state dan ham o'chiramiz
-      const deletedIds = new Set(lessonGradesDocs.map(g => g.id));
-      setAllGrades(prev => prev.filter(g => !deletedIds.has(g.id)));
-
+      updateQueryCache('lesson_delete', lesson);
     } catch (e) {
-      alert("Xatolik: " + e.message);
+      alert('Xatolik: ' + e.message);
     }
   };
 
-  // --- 🔥 GRADING LOGIC (FIXED) ---
+  // --- 🔥 GRADING LOGIC ---
   const openGradingModal = async (lesson) => {
     setGradingLesson(lesson);
     setStudentSearch('');
@@ -300,12 +243,10 @@ const Assignments = () => {
 
     gradesForLesson.forEach(g => {
       let taskIdKey = g.taskId;
-
       if (!taskIdKey && lesson.tasks) {
         const foundTask = lesson.tasks.find(t => t.text === g.taskType);
         if (foundTask) taskIdKey = foundTask.id;
       }
-
       if (taskIdKey) {
         loadedGrades[`${g.studentId}_${taskIdKey} `] = { score: g.score, docId: g.id };
       }
@@ -329,7 +270,6 @@ const Assignments = () => {
   const saveGrade = async (studentId, studentName, task, value) => {
     const taskId = task.id;
     const taskName = task.text;
-
     const key = `${studentId}_${taskId} `;
     const currentEntry = lessonGrades[key];
 
@@ -340,14 +280,14 @@ const Assignments = () => {
 
     try {
       if (currentEntry?.docId) {
-        await updateDoc(doc(db, "grades", currentEntry.docId), {
+        await updateDoc(doc(db, 'grades', currentEntry.docId), {
           score: safeScore,
           date: serverTimestamp(),
-          taskId: taskId
+          taskId: taskId,
         });
-        updateCacheLocally('grade_update', { id: currentEntry.docId, score: safeScore });
+        updateQueryCache('grade_update', { id: currentEntry.docId, score: safeScore });
       } else {
-        const newDoc = await addDoc(collection(db, "grades"), {
+        const newDoc = await addDoc(collection(db, 'grades'), {
           studentId,
           studentName,
           groupId: selectedGroupId,
@@ -356,30 +296,32 @@ const Assignments = () => {
           taskType: taskName,
           comment: gradingLesson.topic,
           score: safeScore,
-          date: serverTimestamp()
+          date: serverTimestamp(),
         });
 
         setLessonGrades(prev => ({ ...prev, [key]: { score: safeScore, docId: newDoc.id } }));
-        updateCacheLocally('grade_add', {
+        updateQueryCache('grade_add', {
           id: newDoc.id,
           studentId,
-          taskId, taskType: taskName,
+          taskId,
+          taskType: taskName,
           lessonId: gradingLesson.id,
           score: safeScore,
-          groupId: selectedGroupId
+          groupId: selectedGroupId,
         });
       }
       setSavingStatus('saved');
       setTimeout(() => setSavingStatus(null), 1000);
-    } catch (e) { console.error("Save error:", e); setSavingStatus('error'); }
+    } catch (e) {
+      console.error('Save error:', e);
+      setSavingStatus('error');
+    }
   };
 
   const openEditModal = (lesson) => {
     setEditingLesson(lesson);
     setNewTopic(lesson.topic);
-    const tasksWithIds = (lesson.tasks || []).map(t =>
-      t.id ? t : { ...t, id: generateId() }
-    );
+    const tasksWithIds = (lesson.tasks || []).map(t => t.id ? t : { ...t, id: generateId() });
     if (tasksWithIds.length === 0) tasksWithIds.push({ id: generateId(), text: 'Homework', completed: false });
     setNewTasks(tasksWithIds);
   };
@@ -387,29 +329,27 @@ const Assignments = () => {
   // --- 🔥 BATCH UPDATE (TOPIC + TASKS + GRADE taskType sync) ---
   const handleUpdate = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setIsSaving(true);
     try {
-      const lessonRef = doc(db, "lessons", editingLesson.id);
+      const lessonRef = doc(db, 'lessons', editingLesson.id);
       await updateDoc(lessonRef, {
         topic: newTopic,
         tasks: newTasks,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
 
-      // Task nomi o'zgargan bo'lsa — tegishli grade'larning taskType ni ham yangilaymiz
       const oldTasks = editingLesson.tasks || [];
       const gradeUpdatePromises = [];
 
       for (const newTask of newTasks) {
         const oldTask = oldTasks.find(t => t.id === newTask.id);
         if (oldTask && oldTask.text !== newTask.text) {
-          // Bu task nomi o'zgardi — tegishli grade'larni topib yangilaymiz
           const changedGrades = allGrades.filter(
             g => g.lessonId === editingLesson.id && g.taskType === oldTask.text
           );
           for (const grade of changedGrades) {
             gradeUpdatePromises.push(
-              updateDoc(doc(db, "grades", grade.id), { taskType: newTask.text })
+              updateDoc(doc(db, 'grades', grade.id), { taskType: newTask.text })
             );
           }
         }
@@ -417,29 +357,40 @@ const Assignments = () => {
 
       if (gradeUpdatePromises.length > 0) {
         await Promise.all(gradeUpdatePromises);
-        // Cache'dagi grade'larni ham yangilaymiz
-        const updatedGrades = allGrades.map(g => {
-          if (g.lessonId !== editingLesson.id) return g;
-          const matchedNewTask = newTasks.find(nt => {
-            const oldTask = oldTasks.find(ot => ot.id === nt.id);
-            return oldTask && oldTask.text === g.taskType && oldTask.text !== nt.text;
+        // Grades cache ni ham yangilaymiz
+        queryClient.setQueryData(['groupDetails', selectedGroupId], (old) => {
+          if (!old) return old;
+          const updatedGrades = old.grades.map(g => {
+            if (g.lessonId !== editingLesson.id) return g;
+            const matchedNewTask = newTasks.find(nt => {
+              const ot = oldTasks.find(o => o.id === nt.id);
+              return ot && ot.text === g.taskType && ot.text !== nt.text;
+            });
+            return matchedNewTask ? { ...g, taskType: matchedNewTask.text } : g;
           });
-          return matchedNewTask ? { ...g, taskType: matchedNewTask.text } : g;
+          return { ...old, grades: updatedGrades };
         });
-        setAllGrades(updatedGrades);
       }
 
       const updatedLesson = { ...editingLesson, topic: newTopic, tasks: newTasks };
-      updateCacheLocally('lesson_update', updatedLesson);
-
+      updateQueryCache('lesson_update', updatedLesson);
       setEditingLesson(null);
-    } catch (e) { alert(e.message); }
-    finally { setLoading(false); }
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const filteredStudents = students.filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()));
+  const filteredStudents = students.filter(s =>
+    s.name.toLowerCase().includes(studentSearch.toLowerCase())
+  );
 
-  if (pageLoading || groupsLoading) return <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]"><Loader2 className="animate-spin text-indigo-600" /></div>;
+  if (groupsLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
+      <Loader2 className="animate-spin text-indigo-600" />
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] pb-32 font-sans touch-manipulation">
@@ -450,7 +401,7 @@ const Assignments = () => {
           <div className="min-w-0">
             <h1 className="text-lg sm:text-xl font-black text-slate-800 uppercase italic tracking-tight leading-none">Assignments</h1>
             <p className="text-[10px] font-bold text-slate-400 mt-0.5">
-              {lastUpdated ? `Updated: ${lastUpdated}` : 'Syncing...'}
+              {pageLoading ? 'Yuklanmoqda...' : lastUpdated ? `Updated: ${lastUpdated}` : 'Syncing...'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -515,7 +466,12 @@ const Assignments = () => {
             </div>
           )}
 
-          {lessons.length === 0 ? (
+          {/* Loading state for group switch */}
+          {pageLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="animate-spin text-indigo-400" size={32} />
+            </div>
+          ) : lessons.length === 0 ? (
             <div className="text-center py-16 border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
               <CalendarIcon className="mx-auto text-slate-300 mb-3" size={40} />
               <p className="text-xs font-bold text-slate-400 mb-4">Hozircha darslar yo'q</p>
@@ -569,7 +525,7 @@ const Assignments = () => {
                         </div>
                       )}
 
-                      {/* Action buttons — always visible on mobile */}
+                      {/* Action buttons */}
                       <div className="flex items-center gap-2 px-4 py-3 bg-slate-50/70 border-t border-slate-100">
                         <button
                           onClick={() => openGradingModal(l)}
@@ -753,7 +709,6 @@ const Assignments = () => {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                {/* Saving status compact */}
                 {savingStatus === 'saving' && <span className="text-[10px] font-black text-orange-500 flex items-center gap-1 hidden sm:flex"><Loader2 size={10} className="animate-spin" /> Saving...</span>}
                 {savingStatus === 'saved' && <span className="text-[10px] font-black text-emerald-500 flex items-center gap-1 hidden sm:flex"><CheckCircle2 size={10} /> Saved</span>}
                 <button onClick={() => setGradingLesson(null)} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-red-50 hover:text-red-500 transition-colors active:scale-95"><X size={16} /></button>
@@ -868,8 +823,8 @@ const Assignments = () => {
 
             {/* Fixed Footer */}
             <div className="p-4 bg-white border-t border-slate-100 shrink-0 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-              <button onClick={handleUpdate} disabled={loading} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-100 active:scale-95 transition-transform">
-                {loading ? "Saving..." : "Save Changes"}
+              <button onClick={handleUpdate} disabled={isSaving} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-100 active:scale-95 transition-transform">
+                {isSaving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
