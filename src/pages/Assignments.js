@@ -98,9 +98,10 @@ const Assignments = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  const students = groupData?.students ?? [];
-  const lessons = groupData?.lessons ?? [];
-  const allGrades = groupData?.grades ?? [];
+  const students = useMemo(() => groupData?.students ?? [], [groupData]);
+  const lessons = useMemo(() => groupData?.lessons ?? [], [groupData]);
+  const allGrades = useMemo(() => groupData?.grades ?? [], [groupData]);
+
 
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
