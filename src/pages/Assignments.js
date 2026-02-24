@@ -74,12 +74,26 @@ const Assignments = () => {
   const LESSONS_PER_PAGE = 6;
   const [currentPage, setCurrentPage] = useState(1);
 
-  // groups o'zgarganda birinchi guruhni tanlash
+  // groups kelishi bilan birinchi guruhni tanlash + BARCHA guruhlarni prefetch qilish
   useEffect(() => {
-    if (groups.length > 0 && !selectedGroupId) {
+    if (groups.length === 0) return;
+
+    // Birinchi guruhni tanlash (faqat bir marta)
+    if (!selectedGroupId) {
       setSelectedGroupId(groups[0].id);
     }
-  }, [groups, selectedGroupId]);
+
+    // ⚡ PREFETCH: Barcha guruhlar uchun ma'lumotni background da yuklash
+    // Bu guruhdan guruhga o'tishni darhol tezlashtiradi
+    groups.forEach(group => {
+      queryClient.prefetchQuery({
+        queryKey: ['groupDetails', group.id],
+        queryFn: () => fetchGroupDetails(group.id),
+        staleTime: 5 * 60 * 1000,
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups]);
 
   // Guruh o'zgarganda pagination reset
   useEffect(() => {
